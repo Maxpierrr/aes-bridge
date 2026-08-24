@@ -1,9 +1,10 @@
 # AES Bridge for macOS
 
-Experimental GPLv3 AES67 bridge and virtual Core Audio device. The first target
+GPLv3 AES67 bridge and experimental virtual Core Audio device. The first target
 is deliberately fixed to 8 inputs, 8 outputs, L24, 48 kHz and 48 frames per
 packet (1 ms). It is designed for LXToolPi/RASPIAUDIO and configurable pairs of
-macOS computers; a Windows endpoint is planned after the macOS path is proven.
+macOS computers. A portable Windows protocol/Winsock backend is prepared for a
+future virtual Windows audio endpoint.
 
 > Not production-ready. The protocol core and local UDP loopback are tested.
 > RTP RX/TX passes an automated eight-channel UDP loopback test. The Core Audio
@@ -23,9 +24,11 @@ macOS computers; a Windows endpoint is planned after the macOS path is proven.
 | Explicit interface-address UDP binding | Implemented; loopback tested |
 | Live RTP RX/TX, 48 frames every 1 ms | Implemented; eight-channel loopback passes |
 | Engine ↔ driver lock-free mmap bridge | Implemented and tested between mappings |
-| SAP publication | Implemented; live discovery listener pending |
+| SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
+| Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 8×8/48 kHz | Bundle compiles; not installed |
-| SwiftUI manager and engine controls | Implemented in source; full build needs matching Xcode/SDK |
+| SwiftUI manager and engine controls | Compiles and signs ad hoc with the installed Command Line Tools |
+| Windows protocol/Winsock/shared-memory backend | Implemented; Windows CI is the validation gate |
 | PTPv2 slave/domain 0 | Hardware-facing implementation pending |
 | Raspberry Pi validation | Pending |
 
@@ -63,26 +66,34 @@ Prerequisites discovered on the current Mac:
 - libASPL is not available from Homebrew anymore. CMake fetches its official
   source at a pinned commit instead.
 
-Build the protocol core, tools, tests and driver:
+Build the protocol core, tools, tests and driver. A local APFS build directory
+avoids SMB resource-fork metadata during signing:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAESBRIDGE_BUILD_MANAGER=OFF
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+cmake -S . -B /private/tmp/aes-bridge-build -DCMAKE_BUILD_TYPE=Release -DAESBRIDGE_BUILD_MANAGER=OFF
+cmake --build /private/tmp/aes-bridge-build --parallel
+ctest --test-dir /private/tmp/aes-bridge-build --output-on-failure
+scripts/build-manager.sh /private/tmp/aes-bridge-build/aes-bridge-engine
 ```
+
+The runnable development app is written to
+`/private/tmp/aes-bridge-dist/AES Bridge.app`. This local APFS destination avoids
+the provenance metadata added by the SMB workspace. It is ad-hoc signed for
+local testing only. Public distribution without a Gatekeeper warning requires
+an Apple Developer ID signature and notarization.
 
 Network tests may need to run outside a restricted sandbox:
 
 ```sh
-./build/AESBridgeTests
-./build/aes-bridge-engine --list-interfaces
-./build/aes-bridge-engine --print-tx-sdp 192.168.101.103
-./build/aes-bridge-engine --run --interface en7 --duration 10
+/private/tmp/aes-bridge-build/AESBridgeTests
+/private/tmp/aes-bridge-build/aes-bridge-engine --list-interfaces
+/private/tmp/aes-bridge-build/aes-bridge-engine --print-tx-sdp 192.168.101.103
+/private/tmp/aes-bridge-build/aes-bridge-engine --run --interface en7 --duration 10
 ```
 
-The current Swift compiler and Command Line Tools SDK do not match (compiler
-6.3.3 versus SDK 6.3.2). Install a full Xcode version compatible with macOS
-26.5.2, select it with `xcode-select`, then run `scripts/build-manager.sh`.
+The manager currently builds with the installed Command Line Tools. Full Xcode
+will still be needed later for Developer ID signing, notarization and a proper
+installer package, but not for the present ad-hoc development build.
 
 The workspace is on SMB. macOS code signing interprets SMB metadata as a
 resource fork. Stage release bundles on local APFS (the installer strips
@@ -94,7 +105,7 @@ Do not install this checkpoint on a production machine. After reviewing the
 remaining PTP limitation, a development install will be:
 
 ```sh
-sudo ./Installer/install-dev.sh
+sudo ./Installer/install-dev.sh /private/tmp/aes-bridge-build "/private/tmp/aes-bridge-dist/AES Bridge.app"
 ```
 
 It uses `/Library/Audio/Plug-Ins/HAL/AESBridge.driver`, the Apple-documented
@@ -106,7 +117,8 @@ sudo ./Installer/uninstall.sh
 ```
 
 See [Docs/AUDIT.md](Docs/AUDIT.md) and
-[Docs/TESTING_WITH_PI.md](Docs/TESTING_WITH_PI.md).
+[Docs/TESTING_WITH_PI.md](Docs/TESTING_WITH_PI.md). The compilable future
+Windows boundary is documented in [Docs/WINDOWS_BACKEND.md](Docs/WINDOWS_BACKEND.md).
 
 ## License
 

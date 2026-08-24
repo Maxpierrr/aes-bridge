@@ -8,24 +8,50 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(AESBRIDGE_BUILD_DRIVER "Build the libASPL AudioServerPlugIn" ON)
 option(AESBRIDGE_BUILD_MANAGER "Build the SwiftUI manager" ON)
 option(AESBRIDGE_BUILD_TESTS "Build automated tests" ON)
+option(AESBRIDGE_BUILD_WINDOWS_BACKEND "Build the Windows network backend scaffold" ON)
 
-add_library(AESBridgeCore STATIC
+function(aesbridge_strict_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endfunction()
+
+add_library(AESBridgeProtocol STATIC
     Sources/Core/L24Codec.cpp
     Sources/Core/RTPPacket.cpp
     Sources/Core/SDP.cpp
     Sources/Core/SAP.cpp
-    Sources/Core/UDPSocket.cpp
+    Sources/Core/SharedAudioRing.cpp
+)
+target_include_directories(AESBridgeProtocol PUBLIC Sources)
+aesbridge_strict_warnings(AESBridgeProtocol)
+
+if(WIN32)
+    add_library(AESBridgeNetworking STATIC Sources/Platform/Windows/UDPSocketWindows.cpp)
+    target_link_libraries(AESBridgeNetworking PUBLIC ws2_32)
+else()
+    add_library(AESBridgeNetworking STATIC Sources/Core/UDPSocket.cpp)
+endif()
+target_include_directories(AESBridgeNetworking PUBLIC Sources)
+aesbridge_strict_warnings(AESBridgeNetworking)
+
+if(UNIX)
+add_library(AESBridgeCore STATIC
+    Sources/Core/SessionDirectory.cpp
     Sources/Core/SharedAudioMemory.cpp
 )
 target_include_directories(AESBridgeCore PUBLIC Sources)
-target_compile_options(AESBridgeCore PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_link_libraries(AESBridgeCore PUBLIC AESBridgeProtocol AESBridgeNetworking)
+aesbridge_strict_warnings(AESBridgeCore)
 
 add_executable(aes-bridge-engine
     Sources/Engine/EngineMain.cpp
     Sources/Engine/LiveEngine.cpp
 )
 target_link_libraries(aes-bridge-engine PRIVATE AESBridgeCore)
-target_compile_options(aes-bridge-engine PRIVATE -Wall -Wextra -Wpedantic -Werror)
+aesbridge_strict_warnings(aes-bridge-engine)
 
 if(APPLE AND AESBRIDGE_BUILD_DRIVER)
     find_path(ASPL_INCLUDE_DIR aspl/Plugin.hpp PATHS /opt/homebrew/include /usr/local/include)
@@ -74,11 +100,31 @@ if(APPLE AND AESBRIDGE_BUILD_MANAGER)
     add_dependencies(AESBridgeManager aes-bridge-engine)
 endif()
 
+endif() # UNIX
+
+if(WIN32 AND AESBRIDGE_BUILD_WINDOWS_BACKEND)
+    add_executable(aes-bridge-windows-backend
+        Sources/Platform/Windows/WindowsBackendMain.cpp
+        Sources/Platform/Windows/WindowsSharedAudioMemory.cpp
+    )
+    target_link_libraries(aes-bridge-windows-backend PRIVATE AESBridgeProtocol AESBridgeNetworking)
+    aesbridge_strict_warnings(aes-bridge-windows-backend)
+endif()
+
 if(AESBRIDGE_BUILD_TESTS)
     enable_testing()
+    add_executable(AESBridgeProtocolTests Tests/ProtocolTests.cpp)
+    target_link_libraries(AESBridgeProtocolTests PRIVATE AESBridgeProtocol)
+    aesbridge_strict_warnings(AESBridgeProtocolTests)
+    add_test(NAME AESBridgeProtocol COMMAND AESBridgeProtocolTests)
+if(UNIX)
     add_executable(AESBridgeTests Tests/CoreTests.cpp)
     target_sources(AESBridgeTests PRIVATE Sources/Engine/LiveEngine.cpp)
     target_link_libraries(AESBridgeTests PRIVATE AESBridgeCore)
-    target_compile_options(AESBridgeTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    aesbridge_strict_warnings(AESBridgeTests)
     add_test(NAME AESBridgeCore COMMAND AESBridgeTests)
+endif()
+if(WIN32 AND AESBRIDGE_BUILD_WINDOWS_BACKEND)
+    add_test(NAME AESBridgeWindowsBackend COMMAND aes-bridge-windows-backend --self-test)
+endif()
 endif()

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "Core/SDP.hpp"
+#include "Core/IPv4Address.hpp"
 
-#include <arpa/inet.h>
 #include <charconv>
 #include <sstream>
 
@@ -22,10 +22,8 @@ template <typename T> bool parseNumber(std::string_view text, T& value) {
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
 bool validIPv4(std::string_view value, bool requireMulticast = false) {
-    in_addr address{};
-    const std::string copy(value);
-    if (inet_pton(AF_INET, copy.c_str(), &address) != 1) return false;
-    return !requireMulticast || (ntohl(address.s_addr) >= 0xe0000000U && ntohl(address.s_addr) <= 0xefffffffU);
+    const auto address = IPv4Address::parse(value);
+    return address.has_value() && (!requireMulticast || address->isMulticast());
 }
 }
 

@@ -6,6 +6,7 @@
 #include "Core/ReconnectPolicy.hpp"
 #include "Core/SAP.hpp"
 #include "Core/SDP.hpp"
+#include "Core/SessionDirectory.hpp"
 #include "Core/SharedAudioMemory.hpp"
 #include "Core/SPSCRingBuffer.hpp"
 #include "Core/UDPSocket.hpp"
@@ -186,10 +187,13 @@ void testLiveEngineLoopbackAndChannelOrder() {
     config.rxPort = 54678;
     config.txPort = 54678;
     config.jitterPackets = 3;
-    config.enableSAP = false;
+    config.enableSAPPublication = false;
+    config.enableSAPDiscovery = false;
 
     lxtool::aes67::LiveEngine engine(config);
     CHECK(engine.start());
+    lxtool::aes67::LiveEngine duplicate(config);
+    CHECK(!duplicate.start());
     auto* block = engine.sharedBlock();
     if (!block) return;
     block->ioRunning.store(true);
@@ -225,11 +229,119 @@ void testLiveEngineLoopbackAndChannelOrder() {
     engine.stop();
     CHECK(lxtool::aes67::SharedAudioMemory::remove());
 }
+
+void testLiveSAPDiscoveryAndDeletion() {
+    using namespace std::chrono_literals;
+    CHECK(lxtool::aes67::SharedAudioMemory::remove());
+    lxtool::aes67::LiveEngineConfig config;
+    config.interfaceAddress = "127.0.0.1";
+    config.rxAddress = "127.0.0.1";
+    config.txAddress = "127.0.0.1";
+    config.rxPort = 54683;
+    config.txPort = 54683;
+    config.sapAddress = "127.0.0.1";
+    config.sapPort = 54684;
+    config.enableSAPPublication = false;
+    config.enableSAPDiscovery = true;
+
+    lxtool::aes67::LiveEngine engine(config);
+    CHECK(engine.start());
+    auto* block = engine.sharedBlock();
+    if (!block) return;
+
+    lxtool::aes67::SessionDescription session;
+    session.name = "Test-Pi-Inputs-1-8";
+    session.originAddress = "10.20.30.40";
+    session.sourceAddress = "10.20.30.40";
+    session.multicastAddress = "239.69.83.80";
+    session.port = 5004;
+    const auto sdp = lxtool::aes67::SDP::generate(session);
+    const auto hash = lxtool::aes67::SAP::hash(sdp);
+    lxtool::aes67::SAPMessage announcement{false, hash, session.originAddress, "application/sdp", sdp};
+    lxtool::aes67::UDPSocket publisher;
+    CHECK(publisher.openTransmitter(config.sapAddress, config.sapPort, "127.0.0.1"));
+    const auto announcementBytes = lxtool::aes67::SAP::encode(announcement);
+    bool discovered = false;
+    for (int attempt = 0; attempt < 20 && !discovered; ++attempt) {
+        CHECK(publisher.send(announcementBytes) == static_cast<std::ptrdiff_t>(announcementBytes.size()));
+        std::this_thread::sleep_for(25ms);
+        const auto sessions = lxtool::aes67::SessionDirectory::snapshots(*block);
+        discovered = sessions.size() == 1 && sessions.front().name == session.name
+            && sessions.front().multicastAddress == session.multicastAddress
+            && sessions.front().port == session.port && sessions.front().channels == 8;
+    }
+    CHECK(discovered);
+
+    announcement.deletion = true;
+    const auto deletionBytes = lxtool::aes67::SAP::encode(announcement);
+    CHECK(publisher.send(deletionBytes) == static_cast<std::ptrdiff_t>(deletionBytes.size()));
+    bool deleted = false;
+    for (int attempt = 0; attempt < 20 && !deleted; ++attempt) {
+        std::this_thread::sleep_for(25ms);
+        deleted = lxtool::aes67::SessionDirectory::snapshots(*block).empty();
+    }
+    CHECK(deleted);
+    engine.stop();
+    CHECK(lxtool::aes67::SharedAudioMemory::remove());
+}
+
+void testRTPSourceRestartRecovery() {
+    using namespace std::chrono_literals;
+    using namespace lxtool::aes67;
+    CHECK(SharedAudioMemory::remove());
+    LiveEngineConfig config;
+    config.interfaceAddress = "127.0.0.1";
+    config.rxAddress = "127.0.0.1";
+    config.txAddress = "127.0.0.1";
+    config.rxPort = 54685;
+    config.txPort = 54686;
+    config.jitterPackets = 3;
+    config.enableSAPPublication = false;
+    config.enableSAPDiscovery = false;
+    LiveEngine engine(config);
+    CHECK(engine.start());
+    auto* block = engine.sharedBlock();
+    if (!block) return;
+
+    UDPSocket sender;
+    CHECK(sender.openTransmitter("127.0.0.1", config.rxPort, "127.0.0.1"));
+    auto sendPackets = [&](std::uint32_t ssrc, std::uint16_t firstSequence, float value) {
+        std::array<float, kFramesPerPacket * kChannels> samples{};
+        samples.fill(value);
+        RTPPacket packet;
+        packet.ssrc = ssrc;
+        packet.payload.resize(kPayloadBytes);
+        CHECK(L24Codec::encode(samples, packet.payload));
+        std::array<std::uint8_t, RTPCodec::kFixedHeaderBytes + kPayloadBytes> wire{};
+        for (std::uint16_t index = 0; index < 12; ++index) {
+            packet.sequence = static_cast<std::uint16_t>(firstSequence + index);
+            packet.timestamp = static_cast<std::uint32_t>(index) * kFramesPerPacket;
+            std::size_t written = 0;
+            CHECK(RTPCodec::encode(packet, wire, written));
+            CHECK(sender.send(std::span(wire).first(written)) == static_cast<std::ptrdiff_t>(written));
+            std::this_thread::sleep_for(2ms);
+        }
+    };
+    std::this_thread::sleep_for(30ms);
+    sendPackets(0x11111111U, 100, 0.1F);
+    sendPackets(0x22222222U, 0, 0.7F);
+    std::this_thread::sleep_for(80ms);
+    CHECK(block->statistics.reconnects.load() >= 1);
+    std::array<float, 4096> returned{};
+    const auto count = block->networkToCoreAudio[0].read(returned);
+    bool foundRestartedSource = false;
+    for (std::size_t index = 0; index < count; ++index) {
+        if (std::abs(returned[index] - 0.7F) < 0.000001F) { foundRestartedSource = true; break; }
+    }
+    CHECK(foundRestartedSource);
+    engine.stop();
+    CHECK(SharedAudioMemory::remove());
+}
 }
 
 int main() {
     testL24(); testRTP(); testSDP(); testSAP(); testChannelOrder(); testJitterAndLoss(); testRingAndReconnect(); testUDPLoopback();
-    testSharedAudioMemory(); testLiveEngineLoopbackAndChannelOrder();
+    testSharedAudioMemory(); testLiveEngineLoopbackAndChannelOrder(); testLiveSAPDiscoveryAndDeletion(); testRTPSourceRestartRecovery();
     if (failures == 0) std::cout << "All AES Bridge core and live-loopback tests passed\n";
     return failures == 0 ? 0 : 1;
 }

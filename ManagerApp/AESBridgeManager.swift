@@ -10,13 +10,26 @@ struct NetworkInterface: Identifiable, Hashable {
     var id: String { name }
 }
 
+struct DiscoveredSession: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let originAddress: String
+    let sourceAddress: String
+    let multicastAddress: String
+    let port: Int
+    let payloadType: Int
+    let ptpDomain: Int
+}
+
 @MainActor final class EngineModel: ObservableObject {
     @Published var interfaces: [NetworkInterface] = []
     @Published var selectedInterface = ""
-    @Published var discoveredSessions: [String] = []
+    @Published var discoveredSessions: [DiscoveredSession] = []
     @Published var selectedSession = ""
     @Published var rxAddress = "239.69.83.80"
+    @Published var rxSourceAddress = ""
     @Published var rxPort = 5004
+    @Published var rxPayloadType = 96
     @Published var txAddress = "239.69.83.81"
     @Published var txPort = 5004
     @Published var jitterMilliseconds = 6
@@ -26,6 +39,8 @@ struct NetworkInterface: Identifiable, Hashable {
     @Published var txPackets: UInt64 = 0
     @Published var losses: UInt64 = 0
     @Published var errors: UInt64 = 0
+    @Published var rxActive = false
+    @Published var txActive = false
     private var engineProcess: Process?
 
     init() { refreshInterfaces() }
@@ -68,7 +83,8 @@ struct NetworkInterface: Identifiable, Hashable {
         let process = Process()
         process.executableURL = executable
         process.arguments = ["--run", "--interface", selectedInterface,
-            "--rx-group", rxAddress, "--rx-port", String(rxPort),
+            "--rx-group", rxAddress, "--rx-source", rxSourceAddress,
+            "--rx-port", String(rxPort), "--rx-payload-type", String(rxPayloadType),
             "--tx-group", txAddress, "--tx-port", String(txPort),
             "--jitter-packets", String(jitterMilliseconds)]
         process.standardOutput = FileHandle.nullDevice
@@ -96,6 +112,14 @@ struct NetworkInterface: Identifiable, Hashable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.start() }
     }
 
+    func applySelectedSession() {
+        guard let session = discoveredSessions.first(where: { $0.id == selectedSession }) else { return }
+        rxAddress = session.multicastAddress
+        rxSourceAddress = session.sourceAddress
+        rxPort = session.port
+        rxPayloadType = session.payloadType
+    }
+
     func refreshStatus() {
         guard let executable = engineURL() else { return }
         let process = Process()
@@ -115,7 +139,26 @@ struct NetworkInterface: Identifiable, Hashable {
             rxPackets = (object["rxPackets"] as? NSNumber)?.uint64Value ?? 0
             txPackets = (object["txPackets"] as? NSNumber)?.uint64Value ?? 0
             losses = (object["lostPackets"] as? NSNumber)?.uint64Value ?? 0
-            errors = (object["malformedPackets"] as? NSNumber)?.uint64Value ?? 0
+            errors = ((object["malformedPackets"] as? NSNumber)?.uint64Value ?? 0)
+                + ((object["sapMalformedPackets"] as? NSNumber)?.uint64Value ?? 0)
+            rxActive = (object["rxActive"] as? Bool) == true
+            txActive = (object["txActive"] as? Bool) == true
+            if let sessions = object["sessions"] as? [[String: Any]] {
+                discoveredSessions = sessions.compactMap { value in
+                    guard let id = value["id"] as? String,
+                          let name = value["name"] as? String,
+                          let origin = value["originAddress"] as? String,
+                          let source = value["sourceAddress"] as? String,
+                          let multicast = value["multicastAddress"] as? String,
+                          let port = (value["port"] as? NSNumber)?.intValue,
+                          let payloadType = (value["payloadType"] as? NSNumber)?.intValue,
+                          let ptpDomain = (value["ptpDomain"] as? NSNumber)?.intValue
+                    else { return nil }
+                    return DiscoveredSession(id: id, name: name, originAddress: origin,
+                        sourceAddress: source, multicastAddress: multicast, port: port,
+                        payloadType: payloadType, ptpDomain: ptpDomain)
+                }
+            }
         } catch {
             engineState = engineProcess?.isRunning == true ? "Démarrage…" : "Arrêté"
         }
@@ -141,7 +184,13 @@ struct ContentView: View {
             List(selection: $model.selectedSession) {
                 Section("Sessions AES67 découvertes") {
                     if model.discoveredSessions.isEmpty { Text("Aucune session").foregroundStyle(.secondary) }
-                    ForEach(model.discoveredSessions, id: \.self) { Text($0).tag($0) }
+                    ForEach(model.discoveredSessions) { session in
+                        VStack(alignment: .leading) {
+                            Text(session.name)
+                            Text("\(session.multicastAddress):\(session.port) · source \(session.sourceAddress)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.tag(session.id)
+                    }
                 }
             }.navigationTitle("AES Bridge")
         } detail: {
@@ -153,9 +202,13 @@ struct ContentView: View {
                     Button("Actualiser les interfaces") { model.refreshInterfaces() }
                 }
                 Section("Réception Pi → Mac") {
-                    Text(model.selectedSession.isEmpty ? "Sélectionnez la session LXToolPi-Inputs-1-8" : model.selectedSession)
+                    Text(model.selectedSession.isEmpty ? "Démarrez le moteur pour découvrir les sessions SAP" : model.selectedSession)
+                    Button("Utiliser la session sélectionnée") { model.applySelectedSession() }
+                        .disabled(model.selectedSession.isEmpty)
                     TextField("Multicast RX", text: $model.rxAddress)
+                    TextField("Source RX", text: $model.rxSourceAddress)
                     TextField("Port RTP RX", value: $model.rxPort, format: .number)
+                    TextField("Payload type RX", value: $model.rxPayloadType, format: .number)
                     Stepper("Tampon anti-gigue : \(model.jitterMilliseconds) ms", value: $model.jitterMilliseconds, in: 2...50)
                 }
                 Section("Émission Mac → Pi") {
@@ -165,6 +218,7 @@ struct ContentView: View {
                 }
                 Section("État") {
                     HStack { StatusBadge(title: "Moteur", value: model.engineState); StatusBadge(title: "PTP domaine 0", value: model.ptpState) }
+                    HStack { StatusBadge(title: "Réception", value: model.rxActive ? "Active" : "En attente"); StatusBadge(title: "Émission", value: model.txActive ? "Active" : "Arrêtée") }
                     Grid(alignment: .leading) {
                         GridRow { Text("RX"); Text("\(model.rxPackets)"); Text("TX"); Text("\(model.txPackets)") }
                         GridRow { Text("Pertes"); Text("\(model.losses)"); Text("Erreurs"); Text("\(model.errors)") }
@@ -173,7 +227,7 @@ struct ContentView: View {
                 Section {
                     HStack { Button("Démarrer") { model.start() }; Button("Arrêter") { model.stop() }; Button("Relancer") { model.restart() } }
                 }
-                Text("Prototype : le transport TX/RX fonctionne en boucle locale. PTP, découverte SAP et stabilité restent à valider avec le Raspberry Pi réel.")
+                Text("Prototype : TX/RX et découverte SAP sont testés localement. PTP et stabilité longue durée restent à valider avec le Raspberry Pi réel.")
                     .font(.caption).foregroundStyle(.secondary)
             }.formStyle(.grouped).padding().navigationTitle("Configuration 8×8")
         }.frame(minWidth: 880, minHeight: 610).onReceive(statusTimer) { _ in model.refreshStatus() }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "Core/Constants.hpp"
 #include "Core/SDP.hpp"
+#include "Core/SessionDirectory.hpp"
 #include "Core/SharedAudioMemory.hpp"
 #include "Engine/LiveEngine.hpp"
 
@@ -12,8 +13,11 @@
 #include <chrono>
 #include <csignal>
 #include <iostream>
+#include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace {
@@ -49,11 +53,36 @@ bool hasOption(int argc, char** argv, const std::string& option) {
     return false;
 }
 
+template <typename Integer>
+Integer parseUnsigned(const std::string& value, Integer maximum) {
+    std::size_t consumed = 0;
+    const auto parsed = std::stoull(value, &consumed);
+    if (consumed != value.size() || parsed > static_cast<unsigned long long>(maximum)) throw std::out_of_range("hors plage");
+    return static_cast<Integer>(parsed);
+}
+
+std::string jsonEscape(std::string_view value) {
+    std::string result;
+    result.reserve(value.size() + 8);
+    for (const char character : value) {
+        switch (character) {
+        case '\\': result += "\\\\"; break;
+        case '"': result += "\\\""; break;
+        case '\n': result += "\\n"; break;
+        case '\r': result += "\\r"; break;
+        case '\t': result += "\\t"; break;
+        default: result += static_cast<unsigned char>(character) < 0x20U ? '?' : character; break;
+        }
+    }
+    return result;
+}
+
 void printStatus(const lxtool::aes67::SharedAudioBlock& block) {
     std::cout << "RX " << block.statistics.rxPackets.load(std::memory_order_relaxed)
               << "  TX " << block.statistics.txPackets.load(std::memory_order_relaxed)
               << "  pertes " << block.statistics.packetsLost.load(std::memory_order_relaxed)
               << "  erreurs " << block.statistics.malformedPackets.load(std::memory_order_relaxed)
+                    + block.statistics.sapMalformedPackets.load(std::memory_order_relaxed)
               << "  reconnexions " << block.statistics.reconnects.load(std::memory_order_relaxed)
               << "  PTP " << (block.ptpLocked.load(std::memory_order_relaxed) ? "VERROUILLÉ" : "NON VERROUILLÉ")
               << '\n';
@@ -65,9 +94,33 @@ void printStatusJson(const lxtool::aes67::SharedAudioBlock& block) {
               << ",\"txPackets\":" << block.statistics.txPackets.load(std::memory_order_relaxed)
               << ",\"lostPackets\":" << block.statistics.packetsLost.load(std::memory_order_relaxed)
               << ",\"malformedPackets\":" << block.statistics.malformedPackets.load(std::memory_order_relaxed)
+              << ",\"sapMalformedPackets\":" << block.statistics.sapMalformedPackets.load(std::memory_order_relaxed)
               << ",\"reconnects\":" << block.statistics.reconnects.load(std::memory_order_relaxed)
+              << ",\"inputUnderruns\":" << block.statistics.inputUnderruns.load(std::memory_order_relaxed)
+              << ",\"outputUnderruns\":" << block.statistics.outputUnderruns.load(std::memory_order_relaxed)
+              << ",\"ringOverruns\":" << block.statistics.ringOverruns.load(std::memory_order_relaxed)
+              << ",\"rxActive\":" << (block.rxActive.load(std::memory_order_relaxed) ? "true" : "false")
+              << ",\"txActive\":" << (block.txActive.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"ptpLocked\":" << (block.ptpLocked.load(std::memory_order_relaxed) ? "true" : "false")
-              << "}\n";
+              << ",\"sessions\":[";
+    const auto sessions = lxtool::aes67::SessionDirectory::snapshots(block);
+    for (std::size_t i = 0; i < sessions.size(); ++i) {
+        const auto& session = sessions[i];
+        if (i != 0) std::cout << ',';
+        std::cout << "{\"id\":\"" << session.messageHash << '-' << jsonEscape(session.originAddress)
+                  << "\",\"name\":\"" << jsonEscape(session.name)
+                  << "\",\"originAddress\":\"" << jsonEscape(session.originAddress)
+                  << "\",\"sourceAddress\":\"" << jsonEscape(session.sourceAddress)
+                  << "\",\"multicastAddress\":\"" << jsonEscape(session.multicastAddress)
+                  << "\",\"port\":" << session.port
+                  << ",\"channels\":" << session.channels
+                  << ",\"sampleRate\":" << session.sampleRate
+                  << ",\"framesPerPacket\":" << session.framesPerPacket
+                  << ",\"payloadType\":" << static_cast<unsigned>(session.payloadType)
+                  << ",\"ptpDomain\":" << static_cast<unsigned>(session.ptpDomain)
+                  << ",\"lastSeenUnixMilliseconds\":" << session.lastSeenUnixMilliseconds << '}';
+    }
+    std::cout << "]}\n";
 }
 
 void usage() {
@@ -76,9 +129,10 @@ void usage() {
               << "  --print-tx-sdp <adresse-ip-interface>\n"
               << "  --status\n"
               << "  --run --interface <nom> [--interface-address <IPv4>]\n"
-              << "        [--rx-group <IPv4>] [--tx-group <IPv4>]\n"
+              << "        [--rx-group <IPv4>] [--rx-source <IPv4>] [--tx-group <IPv4>]\n"
               << "        [--rx-port <port>] [--tx-port <port>]\n"
-              << "        [--jitter-packets <paquets>] [--duration <secondes>] [--no-sap]\n";
+              << "        [--rx-payload-type <0..127>] [--tx-payload-type <0..127>]\n"
+              << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap]\n";
 }
 }
 
@@ -114,13 +168,18 @@ int main(int argc, char** argv) {
     config.interfaceName = valueAfter(argc, argv, "--interface").value_or("");
     config.interfaceAddress = valueAfter(argc, argv, "--interface-address").value_or("");
     config.rxAddress = valueAfter(argc, argv, "--rx-group").value_or(config.rxAddress);
+    config.rxSourceAddress = valueAfter(argc, argv, "--rx-source").value_or("");
     config.txAddress = valueAfter(argc, argv, "--tx-group").value_or(config.txAddress);
-    config.enableSAP = !hasOption(argc, argv, "--no-sap");
+    config.enableSAPPublication = !hasOption(argc, argv, "--no-sap") && !hasOption(argc, argv, "--no-sap-publish");
+    config.enableSAPDiscovery = !hasOption(argc, argv, "--no-sap") && !hasOption(argc, argv, "--no-sap-discovery");
 
     try {
-        if (const auto value = valueAfter(argc, argv, "--rx-port")) config.rxPort = static_cast<std::uint16_t>(std::stoul(*value));
-        if (const auto value = valueAfter(argc, argv, "--tx-port")) config.txPort = static_cast<std::uint16_t>(std::stoul(*value));
-        if (const auto value = valueAfter(argc, argv, "--jitter-packets")) config.jitterPackets = static_cast<std::size_t>(std::stoul(*value));
+        if (const auto value = valueAfter(argc, argv, "--rx-port")) config.rxPort = parseUnsigned<std::uint16_t>(*value, 65'535);
+        if (const auto value = valueAfter(argc, argv, "--tx-port")) config.txPort = parseUnsigned<std::uint16_t>(*value, 65'535);
+        if (const auto value = valueAfter(argc, argv, "--jitter-packets")) config.jitterPackets = parseUnsigned<std::size_t>(*value, 63);
+        if (const auto value = valueAfter(argc, argv, "--rx-payload-type")) config.rxPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
+        if (const auto value = valueAfter(argc, argv, "--tx-payload-type")) config.txPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
+        if (config.jitterPackets < 2) throw std::out_of_range("tampon anti-gigue inférieur à 2");
     } catch (const std::exception& error) {
         std::cerr << "Paramètre numérique invalide: " << error.what() << '\n';
         return 2;
@@ -139,10 +198,16 @@ int main(int argc, char** argv) {
 
     std::signal(SIGINT, requestStop);
     std::signal(SIGTERM, requestStop);
-    const auto duration = valueAfter(argc, argv, "--duration");
-    const auto deadline = duration
-        ? std::chrono::steady_clock::now() + std::chrono::seconds(std::stoul(*duration))
-        : std::chrono::steady_clock::time_point::max();
+    std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
+    try {
+        if (const auto duration = valueAfter(argc, argv, "--duration")) {
+            deadline = std::chrono::steady_clock::now() + std::chrono::seconds(parseUnsigned<std::uint32_t>(*duration, 86'400));
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "Durée invalide: " << error.what() << '\n';
+        engine.stop();
+        return 2;
+    }
 
     std::cout << "AES Bridge démarré sur " << engine.interfaceAddress()
               << " — RX " << config.rxAddress << ':' << config.rxPort

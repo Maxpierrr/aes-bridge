@@ -15,12 +15,18 @@ struct LiveEngineConfig final {
     std::string interfaceName;
     std::string interfaceAddress;
     std::string rxAddress{"239.69.83.80"};
+    std::string rxSourceAddress;
     std::string txAddress{"239.69.83.81"};
     std::uint16_t rxPort{5004};
     std::uint16_t txPort{5004};
-    std::uint8_t payloadType{kPayloadType};
+    std::uint8_t rxPayloadType{kPayloadType};
+    std::uint8_t txPayloadType{kPayloadType};
     std::size_t jitterPackets{kDefaultJitterPackets};
-    bool enableSAP{true};
+    std::string sapAddress{std::string(kSAPMulticast)};
+    std::uint16_t sapPort{kSAPPort};
+    std::uint32_t sapSessionTimeoutSeconds{15};
+    bool enableSAPPublication{true};
+    bool enableSAPDiscovery{true};
 };
 
 class LiveEngine final {
@@ -39,15 +45,18 @@ private:
     void receiveLoop();
     void consumeLoop();
     void transmitLoop();
-    void sapLoop();
+    void sapPublishLoop();
+    void sapDiscoveryLoop();
     LiveEngineConfig config_;
     JitterBuffer<64, 1200> jitter_;
     SharedAudioMemory sharedMemory_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> jitterResetRequested_{false};
     std::thread receiveThread_;
     std::thread consumeThread_;
     std::thread transmitThread_;
-    std::thread sapThread_;
+    std::thread sapPublishThread_;
+    std::thread sapDiscoveryThread_;
 };
 
 } // namespace lxtool::aes67

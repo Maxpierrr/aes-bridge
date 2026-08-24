@@ -24,10 +24,10 @@ process; require a grandmaster, stable offset and no domain mismatch.
 
 ```sh
 cd macos/AESBridge
-ctest --test-dir build --output-on-failure
-./build/aes-bridge-engine --list-interfaces
-./build/aes-bridge-engine --print-tx-sdp <MAC_ETHERNET_IP>
-./build/aes-bridge-engine --run --interface <MAC_ETHERNET_INTERFACE> --duration 30
+ctest --test-dir /private/tmp/aes-bridge-build --output-on-failure
+/private/tmp/aes-bridge-build/aes-bridge-engine --list-interfaces
+/private/tmp/aes-bridge-build/aes-bridge-engine --print-tx-sdp <MAC_ETHERNET_IP>
+/private/tmp/aes-bridge-build/aes-bridge-engine --run --interface <MAC_ETHERNET_INTERFACE> --duration 30
 ```
 
 Pass: all tests, correct wired interface, and generated SDP showing
@@ -35,9 +35,10 @@ Pass: all tests, correct wired interface, and generated SDP showing
 
 ## 2. SAP visibility without audio
 
-Capture only on the selected Ethernet interface. Confirm Pi announcements on
-`239.255.255.255:9875`, parse their SDP, and compare every field to the fixed
-profile. Repeat after unplugging/replugging Ethernet.
+Start AES Bridge, then confirm that the manager lists the Pi announcement from
+`239.255.255.255:9875`. Select it and press **Utiliser la session sélectionnée**;
+verify that multicast, source address, port and payload type match the Pi SDP.
+Repeat after unplugging/replugging Ethernet.
 
 Pass: the Pi session disappears after timeout, reappears automatically, and no
 session from another interface is selected.

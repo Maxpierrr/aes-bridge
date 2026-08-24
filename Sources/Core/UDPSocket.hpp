@@ -17,7 +17,8 @@ public:
     ~UDPSocket();
     UDPSocket(const UDPSocket&) = delete;
     UDPSocket& operator=(const UDPSocket&) = delete;
-    bool openReceiver(const std::string& address, std::uint16_t port, const std::string& interfaceAddress);
+    bool openReceiver(const std::string& address, std::uint16_t port, const std::string& interfaceAddress,
+        const std::string& sourceAddress = {});
     bool openTransmitter(const std::string& address, std::uint16_t port, const std::string& interfaceAddress);
     std::ptrdiff_t send(std::span<const std::uint8_t> bytes) noexcept;
     std::ptrdiff_t receive(std::span<std::uint8_t> bytes, std::chrono::milliseconds timeout) noexcept;
@@ -25,7 +26,7 @@ public:
     [[nodiscard]] int lastError() const noexcept { return lastError_; }
     void close() noexcept;
 private:
-    int descriptor_{-1};
+    std::intptr_t descriptor_{-1};
     sockaddr_in* destination_{nullptr};
     int lastError_{0};
 };

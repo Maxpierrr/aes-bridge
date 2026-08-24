@@ -3,7 +3,7 @@
 set -euo pipefail
 project_dir="${0:A:h:h}"
 engine_binary="${1:-${project_dir}/build/aes-bridge-engine}"
-build_dir="${project_dir}/build-manager"
+build_dir="${2:-/private/tmp/aes-bridge-dist}"
 stage_dir="$(mktemp -d /private/tmp/aes-bridge-manager.XXXXXX)"
 trap 'rm -rf "${stage_dir}"' EXIT
 app_dir="${stage_dir}/AES Bridge.app"
@@ -19,7 +19,13 @@ swiftc -parse-as-library -O \
 [[ -x "${engine_binary}" ]] || { echo "Moteur absent: ${engine_binary}"; exit 1; }
 cp "${engine_binary}" "${app_dir}/Contents/Resources/aes-bridge-engine"
 cp "${project_dir}/ManagerApp/Info.plist" "${app_dir}/Contents/Info.plist"
+xattr -cr "${app_dir}"
+codesign --force --sign - "${app_dir}/Contents/Resources/aes-bridge-engine"
 codesign --force --sign - "${app_dir}"
+codesign --verify --deep --strict "${app_dir}"
+mkdir -p "${build_dir}"
 rm -rf "${build_dir}/AES Bridge.app"
 ditto --norsrc --noextattr "${app_dir}" "${build_dir}/AES Bridge.app"
+xattr -cr "${build_dir}/AES Bridge.app"
+codesign --verify --deep --strict "${build_dir}/AES Bridge.app"
 echo "Built ${build_dir}/AES Bridge.app"

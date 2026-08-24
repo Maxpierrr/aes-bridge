@@ -83,3 +83,19 @@ The current prototype uses a preallocated mmap file containing lock-free SPSC
 rings and atomics; no file or socket operation occurs in the audio callback.
 Migration to an authenticated launchd/Mach service and real PTP discipline is
 still pending, so this checkpoint is not described as production-ready.
+
+## Current implementation checkpoint
+
+The engine now performs bounded SAP discovery, validates discovered SDP against
+the fixed 8-channel L24/48 kHz/1 ms/domain-0 profile, expires stale sessions and
+publishes deletion announcements. RX supports source-specific multicast and
+recovers from RTP SSRC changes without touching the Core Audio callback path.
+
+The portable protocol layer is also compiled by a Windows CI job. Its Winsock
+and named-shared-memory backend is preparation only: no Windows virtual audio
+endpoint or driver is claimed yet.
+
+The macOS manager and HAL bundle are ad-hoc signed development artifacts.
+Command Line Tools are sufficient to compile them. A public build that opens
+without Gatekeeper warnings requires an Apple Developer ID certificate and
+notarization; full Xcode will be required for that release step.

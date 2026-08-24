@@ -21,10 +21,12 @@ bool isMulticast(in_addr address) noexcept {
 
 UDPSocket::~UDPSocket() { close(); }
 
-bool UDPSocket::openReceiver(const std::string& address, std::uint16_t port, const std::string& interfaceAddress) {
+bool UDPSocket::openReceiver(const std::string& address, std::uint16_t port, const std::string& interfaceAddress,
+    const std::string& sourceAddress) {
     close();
-    in_addr group{}, interface{};
-    if (!parseAddress(address, group) || (!interfaceAddress.empty() && !parseAddress(interfaceAddress, interface))) { lastError_ = EINVAL; return false; }
+    in_addr group{}, interface{}, source{};
+    if (!parseAddress(address, group) || (!interfaceAddress.empty() && !parseAddress(interfaceAddress, interface))
+        || (!sourceAddress.empty() && !parseAddress(sourceAddress, source))) { lastError_ = EINVAL; return false; }
     descriptor_ = socket(AF_INET, SOCK_DGRAM, 0);
     if (descriptor_ < 0) { lastError_ = errno; return false; }
     int one = 1;
@@ -33,8 +35,18 @@ bool UDPSocket::openReceiver(const std::string& address, std::uint16_t port, con
     sockaddr_in local{}; local.sin_family = AF_INET; local.sin_port = htons(port); local.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(descriptor_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0) { lastError_ = errno; close(); return false; }
     if (isMulticast(group)) {
-        ip_mreq membership{}; membership.imr_multiaddr = group; membership.imr_interface.s_addr = interfaceAddress.empty() ? htonl(INADDR_ANY) : interface.s_addr;
-        if (setsockopt(descriptor_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership)) != 0) { lastError_ = errno; close(); return false; }
+        if (!sourceAddress.empty()) {
+            ip_mreq_source membership{};
+            membership.imr_multiaddr = group;
+            membership.imr_sourceaddr = source;
+            membership.imr_interface.s_addr = interfaceAddress.empty() ? htonl(INADDR_ANY) : interface.s_addr;
+            if (setsockopt(descriptor_, IPPROTO_IP, IP_ADD_SOURCE_MEMBERSHIP, &membership, sizeof(membership)) != 0) {
+                lastError_ = errno; close(); return false;
+            }
+        } else {
+            ip_mreq membership{}; membership.imr_multiaddr = group; membership.imr_interface.s_addr = interfaceAddress.empty() ? htonl(INADDR_ANY) : interface.s_addr;
+            if (setsockopt(descriptor_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership)) != 0) { lastError_ = errno; close(); return false; }
+        }
     }
     return true;
 }
@@ -67,7 +79,7 @@ std::ptrdiff_t UDPSocket::send(std::span<const std::uint8_t> bytes) noexcept {
 
 std::ptrdiff_t UDPSocket::receive(std::span<std::uint8_t> bytes, std::chrono::milliseconds timeout) noexcept {
     if (descriptor_ < 0) { lastError_ = EBADF; return -1; }
-    pollfd descriptor{descriptor_, POLLIN, 0};
+    pollfd descriptor{static_cast<int>(descriptor_), POLLIN, 0};
     const int ready = poll(&descriptor, 1, static_cast<int>(timeout.count()));
     if (ready == 0) return 0;
     if (ready < 0) { lastError_ = errno; return -1; }
