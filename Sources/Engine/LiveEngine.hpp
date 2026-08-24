@@ -75,6 +75,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<std::size_t> activeReceivers_{0};
     std::atomic<std::size_t> activeTransmitters_{0};
+    std::chrono::steady_clock::time_point consumeEpoch_{};
     std::chrono::steady_clock::time_point transmitEpoch_{};
     std::int64_t transmitSystemEpochNanoseconds_{0};
     std::vector<std::unique_ptr<StreamRuntime>> streams_;

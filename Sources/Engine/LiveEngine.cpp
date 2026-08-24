@@ -94,6 +94,7 @@ bool LiveEngine::start() {
     activeReceivers_.store(0);
     activeTransmitters_.store(0);
     const auto steadyNow = std::chrono::steady_clock::now();
+    consumeEpoch_ = steadyNow + 20ms;
     transmitEpoch_ = steadyNow + 20ms;
     transmitSystemEpochNanoseconds_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count() + 20'000'000LL;
@@ -228,12 +229,16 @@ void LiveEngine::consumeLoop(std::size_t bank, StreamRuntime& runtime) {
     std::array<std::uint8_t, 1200> payload{};
     std::array<float, kFramesPerPacket * kChannels> interleaved{};
     std::array<float, kFramesPerPacket> channel{};
-    auto next = std::chrono::steady_clock::now();
+    auto next = consumeEpoch_;
     while (running_) {
         if (runtime.jitterResetRequested.exchange(false, std::memory_order_acq_rel)) runtime.jitter.reset();
-        next += 1ms;
         std::this_thread::sleep_until(next);
-        if (std::chrono::steady_clock::now() - next > 10ms) next = std::chrono::steady_clock::now();
+        if (std::chrono::steady_clock::now() - next > 10ms) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - consumeEpoch_).count();
+            next = consumeEpoch_ + std::chrono::milliseconds(elapsed);
+        }
+        next += 1ms;
         std::size_t length = 0; std::uint16_t sequence = 0;
         if (!runtime.jitter.pop(payload, length, sequence)) {
             if (runtime.jitter.ready() && runtime.jitter.buffered() > 0) { runtime.jitter.skipMissing(); block->statistics.packetsLost.fetch_add(1); }

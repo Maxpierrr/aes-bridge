@@ -41,7 +41,8 @@ allocation, logging or blocking calls.
 PTP currently uses software ingress/egress timestamps. A lock requires fresh
 Announce and Sync/Follow_Up messages plus four stable Delay_Req/Delay_Resp E2E
 measurements. RTP timestamps are then derived from estimated master time and
-all active banks share the same one-millisecond packet epoch. This must not be
+all active banks share the same one-millisecond transmit and jitter-playout
+epoch. This must not be
 treated as hardware-qualified PTP until tested against the real grandmaster,
 NIC and switch.
 
