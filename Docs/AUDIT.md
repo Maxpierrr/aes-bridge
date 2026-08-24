@@ -112,8 +112,11 @@ input/output formats. It then starts HAL I/O and verifies `ReadInput`,
 `ProcessMix` and `WriteMix` through the shared rings for all 64 channels,
 including the safe-silence path when the engine is unavailable. This caught a
 real mismatch where host-mixed output used libASPL's unimplemented default
-callback. It does not replace validation through `coreaudiod`, Audio MIDI Setup
-and real Core Audio clients after installation.
+callback. The same test then sends 64-channel host-mixed output through the
+lock-free rings, all eight RTP/L24 loopback banks and jitter buffers, and reads
+the preserved channel values back through the Core Audio input callback. It
+does not replace validation through `coreaudiod`, Audio MIDI Setup and real
+Core Audio clients after installation.
 
 The macOS manager and HAL bundle are ad-hoc signed development artifacts.
 Command Line Tools are sufficient to compile them. A public build that opens

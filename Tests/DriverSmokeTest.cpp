@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "Core/Constants.hpp"
 #include "Core/SharedAudioMemory.hpp"
+#include "Engine/LiveEngine.hpp"
 
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -8,11 +9,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -103,6 +106,16 @@ bool runOperation(const DriverAccess& driver, AudioObjectID device, AudioObjectI
 
 bool approximatelyEqual(Float32 left, Float32 right) {
     return std::abs(left - right) < 0.000001F;
+}
+
+template <typename Predicate>
+bool waitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!predicate()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return true;
 }
 }
 
@@ -279,12 +292,96 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (driver.interface->StopIO(driver.reference, device, clientID) != kAudioHardwareNoError
-        || block->ioRunning.load(std::memory_order_acquire)
-        || driver.interface->RemoveDeviceClient(driver.reference, device, &client) != kAudioHardwareNoError) {
+        || block->ioRunning.load(std::memory_order_acquire)) {
         std::cerr << "arrêt des E/S HAL échoué\n";
         return 1;
     }
 
-    std::cout << "AES Bridge HAL smoke test passed: bidirectional 64x64 callbacks at 48 kHz\n";
+    shared.memory.close();
+    LiveEngineConfig engineConfig;
+    engineConfig.interfaceAddress = "127.0.0.1";
+    engineConfig.rxAddress = "127.0.0.1";
+    engineConfig.txAddress = "127.0.0.1";
+    engineConfig.rxPort = 55020;
+    engineConfig.txPort = 55020;
+    engineConfig.streamCount = kStreamBankCount;
+    engineConfig.portStride = 1;
+    engineConfig.jitterPackets = 3;
+    engineConfig.enableSAPPublication = false;
+    engineConfig.enableSAPDiscovery = false;
+    engineConfig.enablePTP = false;
+    LiveEngine engine(engineConfig);
+    if (!engine.start()) {
+        std::cerr << "démarrage du moteur loopback échoué\n";
+        return 1;
+    }
+    block = engine.sharedBlock();
+    if (!block || driver.interface->StartIO(driver.reference, device, clientID) != kAudioHardwareNoError
+        || !block->ioRunning.load(std::memory_order_acquire)) {
+        std::cerr << "redémarrage des E/S HAL avec le moteur échoué\n";
+        return 1;
+    }
+
+    constexpr UInt32 injectedFrameCount = static_cast<UInt32>(kFramesPerPacket * 32);
+    std::vector<Float32> roundtripOutput(
+        static_cast<std::size_t>(injectedFrameCount) * kVirtualChannels);
+    for (std::size_t frame = 0; frame < injectedFrameCount; ++frame) {
+        for (std::size_t channelIndex = 0; channelIndex < kVirtualChannels; ++channelIndex) {
+            roundtripOutput[frame * kVirtualChannels + channelIndex]
+                = static_cast<Float32>(channelIndex + 1) / 100.0F;
+        }
+    }
+    if (!runOperation(driver, device, streams[1], clientID,
+            kAudioServerPlugInIOOperationProcessMix, injectedFrameCount, cycle, roundtripOutput.data())
+        || !runOperation(driver, device, streams[1], clientID,
+            kAudioServerPlugInIOOperationWriteMix, injectedFrameCount, cycle, roundtripOutput.data())) {
+        std::cerr << "injection HAL vers RTP échouée\n";
+        return 1;
+    }
+
+    constexpr std::size_t minimumReturnedFrames = kFramesPerPacket * 8;
+    if (!waitUntil([&] {
+            if (block->statistics.txPackets.load(std::memory_order_acquire) < kStreamBankCount * 8
+                || block->statistics.rxPackets.load(std::memory_order_acquire) < kStreamBankCount * 8) return false;
+            return std::all_of(block->networkToCoreAudio.begin(), block->networkToCoreAudio.end(),
+                [](const auto& ring) { return ring.available() >= minimumReturnedFrames; });
+        }, std::chrono::milliseconds(1500))) {
+        std::cerr << "retour RTP 64 canaux incomplet\n";
+        return 1;
+    }
+
+    constexpr UInt32 returnedFrameCount = 4096;
+    std::vector<Float32> roundtripInput(
+        static_cast<std::size_t>(returnedFrameCount) * kVirtualChannels, 0.0F);
+    if (!runOperation(driver, device, streams[0], clientID,
+            kAudioServerPlugInIOOperationReadInput, returnedFrameCount, cycle, roundtripInput.data())) {
+        std::cerr << "lecture du retour RTP par HAL échouée\n";
+        return 1;
+    }
+    for (std::size_t channelIndex = 0; channelIndex < kVirtualChannels; ++channelIndex) {
+        const auto expected = static_cast<Float32>(channelIndex + 1) / 100.0F;
+        std::size_t matchingFrames = 0;
+        bool found = false;
+        for (std::size_t frame = 0; frame < returnedFrameCount; ++frame) {
+            if (approximatelyEqual(roundtripInput[frame * kVirtualChannels + channelIndex], expected)) {
+                if (++matchingFrames == kFramesPerPacket) { found = true; break; }
+            } else {
+                matchingFrames = 0;
+            }
+        }
+        if (!found) {
+            std::cerr << "retour Core Audio/RTP invalide sur le canal " << channelIndex + 1 << '\n';
+            return 1;
+        }
+    }
+    if (driver.interface->StopIO(driver.reference, device, clientID) != kAudioHardwareNoError
+        || block->ioRunning.load(std::memory_order_acquire)
+        || driver.interface->RemoveDeviceClient(driver.reference, device, &client) != kAudioHardwareNoError) {
+        std::cerr << "arrêt du test bout en bout échoué\n";
+        return 1;
+    }
+    engine.stop();
+
+    std::cout << "AES Bridge HAL smoke test passed: Core Audio 64x64 -> eight RTP banks -> Core Audio at 48 kHz\n";
     return 0;
 }

@@ -12,7 +12,8 @@ activate all eight. A portable Windows protocol/Winsock backend shares the same
 > bundle builds and signs ad hoc. A software-timestamped PTPv2 E2E client now
 > passes a simulated-grandmaster test, but hardware timestamping and real-device
 > validation are incomplete. A non-installed HAL smoke test loads the bundle factory,
-> verifies its 64×64/48 kHz properties and exercises bidirectional 64-channel callbacks.
+> verifies its 64×64/48 kHz properties and exercises a complete 64-channel
+> Core Audio → eight-bank RTP/L24 loopback → Core Audio path.
 > RX, TX, PTP, loss behaviour and long-duration stability still
 > require the real Raspberry Pi and a second physical endpoint.
 
@@ -30,7 +31,7 @@ activate all eight. A portable Windows protocol/Winsock backend shares the same
 | Engine ↔ driver lock-free mmap bridge | Implemented and tested between mappings |
 | SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
 | Session selection, payload type and source filter | Implemented in engine and manager |
-| `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and bidirectional 64-channel callbacks pass an automated smoke test; not installed |
+| `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |
 | SwiftUI manager and engine controls | Compiles and signs ad hoc with the installed Command Line Tools |
 | Windows protocol/Winsock/shared-memory backend | Implemented; Windows CI is the validation gate |
 | PTPv2 E2E client/domain 0 | Codec, four-timestamp offset/delay, lock timeout and PTP-derived RTP timestamps implemented; simulated GM passes |

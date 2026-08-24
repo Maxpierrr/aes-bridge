@@ -90,7 +90,11 @@ if(APPLE AND AESBRIDGE_BUILD_DRIVER)
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         )
         if(AESBRIDGE_BUILD_TESTS)
-            add_executable(AESBridgeDriverSmoke Tests/DriverSmokeTest.cpp)
+            add_executable(AESBridgeDriverSmoke
+                Tests/DriverSmokeTest.cpp
+                Sources/Engine/LiveEngine.cpp
+                Sources/Engine/PTPClient.cpp
+            )
             target_include_directories(AESBridgeDriverSmoke PRIVATE Sources)
             target_link_libraries(AESBridgeDriverSmoke PRIVATE AESBridgeCore
                 "-framework CoreAudio" "-framework CoreFoundation")
