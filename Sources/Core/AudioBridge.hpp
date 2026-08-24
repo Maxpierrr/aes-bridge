@@ -13,8 +13,8 @@ namespace lxtool::aes67 {
 struct alignas(64) AudioBridge final {
     static constexpr std::size_t kRingSamples = 4096;
     using ChannelRing = SPSCRingBuffer<float, kRingSamples>;
-    std::array<ChannelRing, kChannels> networkToCoreAudio;
-    std::array<ChannelRing, kChannels> coreAudioToNetwork;
+    std::array<ChannelRing, kVirtualChannels> networkToCoreAudio;
+    std::array<ChannelRing, kVirtualChannels> coreAudioToNetwork;
     std::atomic<std::uint64_t> inputUnderruns{0};
     std::atomic<std::uint64_t> outputOverruns{0};
     std::atomic<bool> ioRunning{false};

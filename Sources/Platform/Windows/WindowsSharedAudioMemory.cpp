@@ -34,7 +34,8 @@ bool WindowsSharedAudioMemory::open(bool createOwner) noexcept {
     block_ = static_cast<SharedAudioBlock*>(memory);
     if (createOwner) new (block_) SharedAudioBlock{};
     if (block_->magic != kSharedMagic || block_->version != kSharedVersion
-        || block_->channels != kChannels || block_->sampleRate != kSampleRate) {
+        || block_->channels != kVirtualChannels || block_->channelsPerStream != kAES67ChannelsPerStream
+        || block_->streamBankCount != kStreamBankCount || block_->sampleRate != kSampleRate) {
         lastError_ = ERROR_REVISION_MISMATCH;
         close();
         return false;

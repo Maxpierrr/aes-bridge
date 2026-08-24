@@ -1,13 +1,14 @@
 # AES Bridge for macOS
 
-GPLv3 AES67 bridge and experimental virtual Core Audio device. The first target
-is deliberately fixed to 8 inputs, 8 outputs, L24, 48 kHz and 48 frames per
-packet (1 ms). It is designed for LXToolPi/RASPIAUDIO and configurable pairs of
-macOS computers. A portable Windows protocol/Winsock backend is prepared for a
-future virtual Windows audio endpoint.
+GPLv3 AES67 bridge and experimental 64-input/64-output virtual Core Audio
+device. Network transport is deliberately split into eight banks of eight
+channels, each using L24, 48 kHz and 48 frames per packet (1 ms). The
+LXToolPi/RASPIAUDIO profile activates bank 1 only; computer-to-computer profiles
+activate all eight. A portable Windows protocol/Winsock backend shares the same
+64-channel memory contract for a future virtual Windows audio endpoint.
 
 > Not production-ready. The protocol core and local UDP loopback are tested.
-> RTP RX/TX passes an automated eight-channel UDP loopback test. The Core Audio
+> RTP RX/TX passes an automated 64-channel/eight-stream UDP loopback test. The Core Audio
 > bundle builds and signs ad hoc, but real PTP discipline and hardware validation
 > are incomplete. RX, TX, PTP, loss behaviour and long-duration stability still
 > require the real Raspberry Pi and a second physical endpoint.
@@ -17,16 +18,16 @@ future virtual Windows audio endpoint.
 | Area | State |
 |---|---|
 | L24, RTP, SDP, SAP | Implemented and unit-tested |
-| Channel order 1–8 | Explicit interleaving test passes |
+| Channel order 1–64 | Explicit interleaving and eight-bank loopback tests pass |
 | Lock-free SPSC audio rings | Implemented and tested |
 | Jitter reorder/loss accounting | Implemented and tested |
 | Reconnect backoff | Implemented and tested |
 | Explicit interface-address UDP binding | Implemented; loopback tested |
-| Live RTP RX/TX, 48 frames every 1 ms | Implemented; eight-channel loopback passes |
+| Live RTP RX/TX, 48 frames every 1 ms | Implemented; eight-stream/64-channel loopback passes |
 | Engine ↔ driver lock-free mmap bridge | Implemented and tested between mappings |
 | SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
 | Session selection, payload type and source filter | Implemented in engine and manager |
-| `AES Bridge` HAL device, 8×8/48 kHz | Bundle compiles; not installed |
+| `AES Bridge` HAL device, 64×64/48 kHz | Bundle compiles; not installed |
 | SwiftUI manager and engine controls | Compiles and signs ad hoc with the installed Command Line Tools |
 | Windows protocol/Winsock/shared-memory backend | Implemented; Windows CI is the validation gate |
 | PTPv2 slave/domain 0 | Hardware-facing implementation pending |
@@ -51,10 +52,12 @@ allocation, logging or blocking calls.
 The separate `.81` transmit group prevents the two directions from sharing a
 multicast destination. Payload type defaults to 96.
 
-For Mac-to-Mac operation, use complementary groups: computer A receives `.80`
-and transmits `.81`; computer B receives `.81` and transmits `.80`. Each side
-must explicitly select its wired interface. This path is architecturally
-supported but still needs a two-computer clock and endurance test.
+For computer-to-computer operation, eight consecutive groups carry channels
+1–8 through 57–64. Computer A receives `.80`–`.87` and transmits `.96`–`.103`;
+computer B uses the complementary direction. Each side must explicitly select
+its wired interface. This path passes synthetic loopback but still needs a
+two-computer clock and endurance test. A single 64-channel packet is not used:
+its 9,216-byte L24 payload would exceed a standard Ethernet MTU.
 
 ## Build
 
@@ -89,6 +92,7 @@ Network tests may need to run outside a restricted sandbox:
 /private/tmp/aes-bridge-build/aes-bridge-engine --list-interfaces
 /private/tmp/aes-bridge-build/aes-bridge-engine --print-tx-sdp 192.168.101.103
 /private/tmp/aes-bridge-build/aes-bridge-engine --run --interface en7 --duration 10
+/private/tmp/aes-bridge-build/aes-bridge-engine --run --interface en7 --profile computer-a --duration 10
 ```
 
 The manager currently builds with the installed Command Line Tools. Full Xcode

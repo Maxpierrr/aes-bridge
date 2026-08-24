@@ -24,6 +24,7 @@ struct DiscoveredSession: Identifiable, Hashable {
 @MainActor final class EngineModel: ObservableObject {
     @Published var interfaces: [NetworkInterface] = []
     @Published var selectedInterface = ""
+    @Published var profile = "raspberry"
     @Published var discoveredSessions: [DiscoveredSession] = []
     @Published var selectedSession = ""
     @Published var rxAddress = "239.69.83.80"
@@ -42,6 +43,9 @@ struct DiscoveredSession: Identifiable, Hashable {
     @Published var rxActive = false
     @Published var txActive = false
     private var engineProcess: Process?
+
+    var streamCount: Int { profile == "raspberry" ? 1 : 8 }
+    var channelDescription: String { "\(streamCount * 8) × \(streamCount * 8) actifs · \(streamCount) banque(s) AES67" }
 
     init() { refreshInterfaces() }
 
@@ -76,13 +80,28 @@ struct DiscoveredSession: Identifiable, Hashable {
         return FileManager.default.isExecutableFile(atPath: installed.path) ? installed : nil
     }
 
+    func applyProfile() {
+        rxSourceAddress = ""
+        switch profile {
+        case "computer-a":
+            rxAddress = "239.69.83.80"
+            txAddress = "239.69.83.96"
+        case "computer-b":
+            rxAddress = "239.69.83.96"
+            txAddress = "239.69.83.80"
+        default:
+            rxAddress = "239.69.83.80"
+            txAddress = "239.69.83.81"
+        }
+    }
+
     func start() {
         guard engineProcess?.isRunning != true else { engineState = "En fonctionnement"; return }
         guard !selectedInterface.isEmpty else { engineState = "Choisissez une interface Ethernet"; return }
         guard let executable = engineURL() else { engineState = "Moteur absent de l’application"; return }
         let process = Process()
         process.executableURL = executable
-        process.arguments = ["--run", "--interface", selectedInterface,
+        process.arguments = ["--run", "--interface", selectedInterface, "--profile", profile,
             "--rx-group", rxAddress, "--rx-source", rxSourceAddress,
             "--rx-port", String(rxPort), "--rx-payload-type", String(rxPayloadType),
             "--tx-group", txAddress, "--tx-port", String(txPort),
@@ -114,10 +133,20 @@ struct DiscoveredSession: Identifiable, Hashable {
 
     func applySelectedSession() {
         guard let session = discoveredSessions.first(where: { $0.id == selectedSession }) else { return }
-        rxAddress = session.multicastAddress
+        let parts = session.name.split(separator: "-")
+        let firstChannel = parts.count >= 2 ? Int(parts[parts.count - 2]) ?? 1 : 1
+        let bank = max(0, min(7, (firstChannel - 1) / 8))
+        rxAddress = multicastBase(for: session.multicastAddress, bank: bank) ?? session.multicastAddress
         rxSourceAddress = session.sourceAddress
         rxPort = session.port
         rxPayloadType = session.payloadType
+        if engineProcess?.isRunning == true { restart() }
+    }
+
+    private func multicastBase(for address: String, bank: Int) -> String? {
+        let octets = address.split(separator: ".").compactMap { UInt8($0) }
+        guard octets.count == 4, bank <= Int(octets[3]) else { return nil }
+        return "\(octets[0]).\(octets[1]).\(octets[2]).\(Int(octets[3]) - bank)"
     }
 
     func refreshStatus() {
@@ -196,12 +225,18 @@ struct ContentView: View {
         } detail: {
             Form {
                 Section("Réseau") {
+                    Picker("Profil", selection: $model.profile) {
+                        Text("Raspberry Pi · banque 1 · 8×8").tag("raspberry")
+                        Text("Ordinateur A · 64×64").tag("computer-a")
+                        Text("Ordinateur B · 64×64").tag("computer-b")
+                    }.onChange(of: model.profile) { _ in model.applyProfile() }
+                    LabeledContent("Canaux", value: model.channelDescription)
                     Picker("Interface Ethernet", selection: $model.selectedInterface) {
                         ForEach(model.interfaces) { Text("\($0.name) — \($0.address)").tag($0.name) }
                     }
                     Button("Actualiser les interfaces") { model.refreshInterfaces() }
                 }
-                Section("Réception Pi → Mac") {
+                Section("Réception AES67 → Mac") {
                     Text(model.selectedSession.isEmpty ? "Démarrez le moteur pour découvrir les sessions SAP" : model.selectedSession)
                     Button("Utiliser la session sélectionnée") { model.applySelectedSession() }
                         .disabled(model.selectedSession.isEmpty)
@@ -211,10 +246,10 @@ struct ContentView: View {
                     TextField("Payload type RX", value: $model.rxPayloadType, format: .number)
                     Stepper("Tampon anti-gigue : \(model.jitterMilliseconds) ms", value: $model.jitterMilliseconds, in: 2...50)
                 }
-                Section("Émission Mac → Pi") {
+                Section("Émission Mac → AES67") {
                     TextField("Multicast", text: $model.txAddress)
                     TextField("Port RTP", value: $model.txPort, format: .number)
-                    LabeledContent("Format", value: "8 canaux · L24 · 48 kHz · 1 ms")
+                    LabeledContent("Format", value: "8 canaux/banque · L24 · 48 kHz · 1 ms")
                 }
                 Section("État") {
                     HStack { StatusBadge(title: "Moteur", value: model.engineState); StatusBadge(title: "PTP domaine 0", value: model.ptpState) }
@@ -227,9 +262,9 @@ struct ContentView: View {
                 Section {
                     HStack { Button("Démarrer") { model.start() }; Button("Arrêter") { model.stop() }; Button("Relancer") { model.restart() } }
                 }
-                Text("Prototype : TX/RX et découverte SAP sont testés localement. PTP et stabilité longue durée restent à valider avec le Raspberry Pi réel.")
+                Text("Le périphérique virtuel expose 64×64. Le profil Raspberry active uniquement les canaux 1–8 ; les profils ordinateur utilisent huit banques. PTP et stabilité longue durée restent à valider sur matériel réel.")
                     .font(.caption).foregroundStyle(.secondary)
-            }.formStyle(.grouped).padding().navigationTitle("Configuration 8×8")
+            }.formStyle(.grouped).padding().navigationTitle("Configuration 64×64")
         }.frame(minWidth: 880, minHeight: 610).onReceive(statusTimer) { _ in model.refreshStatus() }
     }
 }

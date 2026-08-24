@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "Core/Constants.hpp"
+#include "Core/ChannelLayout.hpp"
 #include "Core/IPv4Address.hpp"
 #include "Core/JitterBuffer.hpp"
 #include "Core/L24Codec.hpp"
@@ -73,6 +74,22 @@ void testLockFreeContainers() {
     const std::array<std::uint8_t, 1> first{1}, second{2};
     CHECK(jitter.push(100, first) && jitter.push(101, second) && jitter.ready());
 }
+
+void test64ChannelOrder() {
+    using namespace lxtool::aes67;
+    constexpr std::size_t frames = 4;
+    std::array<float, frames * kVirtualChannels> interleaved{};
+    std::array<float, frames> channel{};
+    for (std::size_t index = 0; index < kVirtualChannels; ++index) {
+        channel.fill(static_cast<float>(index + 1));
+        CHECK(interleaveChannel<float>(channel, index, kVirtualChannels, interleaved));
+    }
+    for (std::size_t index = 0; index < kVirtualChannels; ++index) {
+        channel.fill(0.0F);
+        CHECK(deinterleaveChannel<float>(interleaved, index, kVirtualChannels, channel));
+        for (const auto sample : channel) CHECK(sample == static_cast<float>(index + 1));
+    }
+}
 }
 
 int main() {
@@ -80,6 +97,7 @@ int main() {
     testProtocolRoundTrip();
     testSDPAndSAP();
     testLockFreeContainers();
+    test64ChannelOrder();
     if (failures == 0) std::cout << "AES Bridge portable protocol tests passed\n";
     return failures == 0 ? 0 : 1;
 }

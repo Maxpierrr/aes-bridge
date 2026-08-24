@@ -75,11 +75,16 @@ degraded, never locked.
 
 Only after the shared-memory bridge tests pass, install the ad-hoc build on
 a non-production Mac and reboot. In Audio MIDI Setup verify exactly one device
-named `AES Bridge`, 8 inputs, 8 outputs and only 48 kHz. Then test Reaper,
+named `AES Bridge`, 64 inputs, 64 outputs and only 48 kHz. Then test Reaper,
 Logic Pro and QLab separately, starting at 6 ms network jitter latency.
 
+The device should expose 64 inputs and 64 outputs; in the Raspberry profile,
+only channels 1–8 carry the physical RASPIAUDIO interface and channels 9–64
+remain reserved for the additional computer-to-computer banks.
+
 Pass: start/stop does not crash `coreaudiod`; idle engine and repeated client
-open/close cycles do not leak threads or memory; all eight channels keep order.
+open/close cycles do not leak threads or memory; channels 1–8 keep exact Pi
+order and inactive channels 9–64 remain silent.
 
 ## 7. Fault and endurance matrix
 

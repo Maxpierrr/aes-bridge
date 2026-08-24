@@ -14,8 +14,8 @@ aspl::StreamParameters streamParameters(aspl::Direction direction) {
     parameters.Format.mFormatID = kAudioFormatLinearPCM;
     parameters.Format.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
     parameters.Format.mBitsPerChannel = 32;
-    parameters.Format.mChannelsPerFrame = kChannels;
-    parameters.Format.mBytesPerFrame = kChannels * sizeof(Float32);
+    parameters.Format.mChannelsPerFrame = kVirtualChannels;
+    parameters.Format.mBytesPerFrame = kVirtualChannels * sizeof(Float32);
     parameters.Format.mFramesPerPacket = 1;
     parameters.Format.mBytesPerPacket = parameters.Format.mBytesPerFrame;
     return parameters;

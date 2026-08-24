@@ -90,6 +90,8 @@ void printStatus(const lxtool::aes67::SharedAudioBlock& block) {
 
 void printStatusJson(const lxtool::aes67::SharedAudioBlock& block) {
     std::cout << "{\"engineRunning\":" << (block.engineRunning.load(std::memory_order_relaxed) ? "true" : "false")
+              << ",\"virtualChannels\":" << block.channels
+              << ",\"activeStreamCount\":" << block.activeStreamCount.load(std::memory_order_relaxed)
               << ",\"rxPackets\":" << block.statistics.rxPackets.load(std::memory_order_relaxed)
               << ",\"txPackets\":" << block.statistics.txPackets.load(std::memory_order_relaxed)
               << ",\"lostPackets\":" << block.statistics.packetsLost.load(std::memory_order_relaxed)
@@ -129,8 +131,10 @@ void usage() {
               << "  --print-tx-sdp <adresse-ip-interface>\n"
               << "  --status\n"
               << "  --run --interface <nom> [--interface-address <IPv4>]\n"
+              << "        [--profile raspberry|computer-a|computer-b]\n"
               << "        [--rx-group <IPv4>] [--rx-source <IPv4>] [--tx-group <IPv4>]\n"
               << "        [--rx-port <port>] [--tx-port <port>]\n"
+              << "        [--stream-count <1..8>] [--port-stride <0..65535>]\n"
               << "        [--rx-payload-type <0..127>] [--tx-payload-type <0..127>]\n"
               << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap]\n";
 }
@@ -167,6 +171,19 @@ int main(int argc, char** argv) {
     lxtool::aes67::LiveEngineConfig config;
     config.interfaceName = valueAfter(argc, argv, "--interface").value_or("");
     config.interfaceAddress = valueAfter(argc, argv, "--interface-address").value_or("");
+    const auto profile = valueAfter(argc, argv, "--profile").value_or("raspberry");
+    if (profile == "computer-a") {
+        config.streamCount = lxtool::aes67::kStreamBankCount;
+        config.rxAddress = "239.69.83.80";
+        config.txAddress = "239.69.83.96";
+    } else if (profile == "computer-b") {
+        config.streamCount = lxtool::aes67::kStreamBankCount;
+        config.rxAddress = "239.69.83.96";
+        config.txAddress = "239.69.83.80";
+    } else if (profile != "raspberry") {
+        std::cerr << "Profil inconnu: " << profile << "\n";
+        return 2;
+    }
     config.rxAddress = valueAfter(argc, argv, "--rx-group").value_or(config.rxAddress);
     config.rxSourceAddress = valueAfter(argc, argv, "--rx-source").value_or("");
     config.txAddress = valueAfter(argc, argv, "--tx-group").value_or(config.txAddress);
@@ -176,10 +193,13 @@ int main(int argc, char** argv) {
     try {
         if (const auto value = valueAfter(argc, argv, "--rx-port")) config.rxPort = parseUnsigned<std::uint16_t>(*value, 65'535);
         if (const auto value = valueAfter(argc, argv, "--tx-port")) config.txPort = parseUnsigned<std::uint16_t>(*value, 65'535);
+        if (const auto value = valueAfter(argc, argv, "--stream-count")) config.streamCount = parseUnsigned<std::size_t>(*value, lxtool::aes67::kStreamBankCount);
+        if (const auto value = valueAfter(argc, argv, "--port-stride")) config.portStride = parseUnsigned<std::uint16_t>(*value, 65'535);
         if (const auto value = valueAfter(argc, argv, "--jitter-packets")) config.jitterPackets = parseUnsigned<std::size_t>(*value, 63);
         if (const auto value = valueAfter(argc, argv, "--rx-payload-type")) config.rxPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
         if (const auto value = valueAfter(argc, argv, "--tx-payload-type")) config.txPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
         if (config.jitterPackets < 2) throw std::out_of_range("tampon anti-gigue inférieur à 2");
+        if (config.streamCount < 1) throw std::out_of_range("nombre de banques inférieur à 1");
     } catch (const std::exception& error) {
         std::cerr << "Paramètre numérique invalide: " << error.what() << '\n';
         return 2;
@@ -210,6 +230,7 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "AES Bridge démarré sur " << engine.interfaceAddress()
+              << " — " << config.streamCount << " banque(s), " << config.streamCount * lxtool::aes67::kAES67ChannelsPerStream << " canaux"
               << " — RX " << config.rxAddress << ':' << config.rxPort
               << " — TX " << config.txAddress << ':' << config.txPort << '\n';
     while (!gStopRequested.load(std::memory_order_relaxed) && std::chrono::steady_clock::now() < deadline) {

@@ -12,6 +12,7 @@
 #include "Core/UDPSocket.hpp"
 #include "Engine/LiveEngine.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -167,10 +168,14 @@ void testSharedAudioMemory() {
     CHECK(peerOpened);
     if (!owner.get() || !peer.get()) return;
 
+    CHECK(owner.get()->channels == lxtool::aes67::kVirtualChannels);
+    CHECK(owner.get()->channelsPerStream == lxtool::aes67::kAES67ChannelsPerStream);
+    CHECK(owner.get()->streamBankCount == lxtool::aes67::kStreamBankCount);
+
     const std::array<float, 4> sent{0.1F, 0.2F, 0.3F, 0.4F};
     std::array<float, 4> received{};
-    CHECK(owner.get()->coreAudioToNetwork[3].write(sent) == sent.size());
-    CHECK(peer.get()->coreAudioToNetwork[3].read(received) == received.size());
+    CHECK(owner.get()->coreAudioToNetwork[63].write(sent) == sent.size());
+    CHECK(peer.get()->coreAudioToNetwork[63].read(received) == received.size());
     CHECK(received == sent);
     owner.close();
     peer.close();
@@ -186,6 +191,8 @@ void testLiveEngineLoopbackAndChannelOrder() {
     config.txAddress = "127.0.0.1";
     config.rxPort = 54678;
     config.txPort = 54678;
+    config.streamCount = lxtool::aes67::kStreamBankCount;
+    config.portStride = 1;
     config.jitterPackets = 3;
     config.enableSAPPublication = false;
     config.enableSAPDiscovery = false;
@@ -200,20 +207,20 @@ void testLiveEngineLoopbackAndChannelOrder() {
 
     constexpr std::size_t injectedFrames = lxtool::aes67::kFramesPerPacket * 32;
     std::array<float, injectedFrames> channel{};
-    for (std::size_t ch = 0; ch < lxtool::aes67::kChannels; ++ch) {
-        channel.fill(static_cast<float>(ch + 1) / 10.0F);
+    for (std::size_t ch = 0; ch < lxtool::aes67::kVirtualChannels; ++ch) {
+        channel.fill(static_cast<float>(ch + 1) / 100.0F);
         CHECK(block->coreAudioToNetwork[ch].write(channel) == channel.size());
     }
 
     std::this_thread::sleep_for(120ms);
-    CHECK(block->statistics.txPackets.load() >= 80);
-    CHECK(block->statistics.rxPackets.load() >= 80);
+    CHECK(block->statistics.txPackets.load() >= config.streamCount * 80);
+    CHECK(block->statistics.rxPackets.load() >= config.streamCount * 80);
 
     std::array<float, 7000> returned{};
-    for (std::size_t ch = 0; ch < lxtool::aes67::kChannels; ++ch) {
+    for (std::size_t ch = 0; ch < lxtool::aes67::kVirtualChannels; ++ch) {
         const auto count = block->networkToCoreAudio[ch].read(returned);
         CHECK(count > injectedFrames);
-        const float expected = static_cast<float>(ch + 1) / 10.0F;
+        const float expected = static_cast<float>(ch + 1) / 100.0F;
         std::size_t matchingRun = 0;
         bool found = false;
         for (std::size_t frame = 0; frame < count; ++frame) {
@@ -337,11 +344,55 @@ void testRTPSourceRestartRecovery() {
     engine.stop();
     CHECK(SharedAudioMemory::remove());
 }
+
+void testEightBankSAPPublication() {
+    using namespace lxtool::aes67;
+    CHECK(SharedAudioMemory::remove());
+    UDPSocket listener;
+    CHECK(listener.openReceiver("127.0.0.1", 54690, "127.0.0.1"));
+    LiveEngineConfig config;
+    config.interfaceAddress = "127.0.0.1";
+    config.rxAddress = "127.0.0.1";
+    config.txAddress = "239.69.83.96";
+    config.rxPort = 54700;
+    config.txPort = 54720;
+    config.streamCount = kStreamBankCount;
+    config.portStride = 1;
+    config.sapAddress = "127.0.0.1";
+    config.sapPort = 54690;
+    config.enableSAPPublication = true;
+    config.enableSAPDiscovery = false;
+    LiveEngine engine(config);
+    CHECK(engine.start());
+    std::array<bool, kStreamBankCount> seen{};
+    std::array<std::uint8_t, 4096> wire{};
+    for (int attempt = 0; attempt < 24; ++attempt) {
+        const auto count = listener.receive(wire, std::chrono::milliseconds(100));
+        if (count <= 0) continue;
+        SAPMessage message;
+        if (!SAP::decode(std::span(wire).first(static_cast<std::size_t>(count)), message) || message.deletion) continue;
+        const auto session = SDP::parse(message.sdp);
+        if (!session) continue;
+        for (std::size_t bank = 0; bank < kStreamBankCount; ++bank) {
+            const auto first = bank * kAES67ChannelsPerStream + 1U;
+            const auto expectedName = "AES-Bridge-Outputs-" + std::to_string(first) + '-' + std::to_string(first + 7U);
+            if (session->name == expectedName) {
+                seen[bank] = session->multicastAddress == "239.69.83." + std::to_string(96U + bank)
+                    && session->port == static_cast<std::uint16_t>(config.txPort + bank);
+            }
+        }
+        if (std::all_of(seen.begin(), seen.end(), [](bool value) { return value; })) break;
+    }
+    CHECK(std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }));
+    engine.stop();
+    CHECK(SharedAudioMemory::remove());
+}
 }
 
 int main() {
     testL24(); testRTP(); testSDP(); testSAP(); testChannelOrder(); testJitterAndLoss(); testRingAndReconnect(); testUDPLoopback();
     testSharedAudioMemory(); testLiveEngineLoopbackAndChannelOrder(); testLiveSAPDiscoveryAndDeletion(); testRTPSourceRestartRecovery();
+    testEightBankSAPPublication();
     if (failures == 0) std::cout << "All AES Bridge core and live-loopback tests passed\n";
     return failures == 0 ? 0 : 1;
 }

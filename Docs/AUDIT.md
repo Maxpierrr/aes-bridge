@@ -71,12 +71,12 @@ The final separation is:
 
 ```text
 Core Audio apps
-    ↕ float32 interleaved, 8×8/48 kHz
+    ↕ float32 interleaved, 64×64/48 kHz
 AudioServerPlugIn (no locks/network/allocation in callback)
     ↕ preallocated shared-memory SPSC rings + atomic status page
 privileged launchd engine / Mach service
-    ↕ RTP L24 + SAP/SDP + PTPv2 on selected Ethernet interface
-LXToolPi / PipeWire / RASPIAUDIO 8×8
+    ↕ 1 to 8 RTP L24 banks + SAP/SDP + PTPv2 on selected Ethernet interface
+LXToolPi / PipeWire / RASPIAUDIO 8×8, or another 64×64 computer endpoint
 ```
 
 The current prototype uses a preallocated mmap file containing lock-free SPSC
@@ -90,6 +90,8 @@ The engine now performs bounded SAP discovery, validates discovered SDP against
 the fixed 8-channel L24/48 kHz/1 ms/domain-0 profile, expires stale sessions and
 publishes deletion announcements. RX supports source-specific multicast and
 recovers from RTP SSRC changes without touching the Core Audio callback path.
+The virtual endpoint remains fixed at 64×64; each validated 8-channel session
+maps to one immutable bank so that no RTP packet exceeds the Ethernet MTU.
 
 The portable protocol layer is also compiled by a Windows CI job. Its Winsock
 and named-shared-memory backend is preparation only: no Windows virtual audio

@@ -13,9 +13,9 @@
 namespace lxtool::aes67 {
 
 // A regular mmap-backed file is usable by both the user engine and coreaudiod.
-inline constexpr char kSharedMemoryPath[] = "/private/tmp/org.maxpierr.aesbridge.audio.v2";
+inline constexpr char kSharedMemoryPath[] = "/private/tmp/org.maxpierr.aesbridge.audio.v3";
 inline constexpr std::uint32_t kSharedMagic = 0x41455342U; // AESB
-inline constexpr std::uint32_t kSharedVersion = 2;
+inline constexpr std::uint32_t kSharedVersion = 3;
 inline constexpr std::size_t kSharedRingCapacity = 8192;
 inline constexpr std::size_t kMaximumDiscoveredSessions = 16;
 inline constexpr std::size_t kSessionNameCapacity = 96;
@@ -65,15 +65,18 @@ struct alignas(64) SharedDiscoveredSession final {
 struct alignas(64) SharedAudioBlock final {
     std::uint32_t magic{kSharedMagic};
     std::uint32_t version{kSharedVersion};
-    std::uint32_t channels{kChannels};
+    std::uint32_t channels{kVirtualChannels};
+    std::uint32_t channelsPerStream{kAES67ChannelsPerStream};
+    std::uint32_t streamBankCount{kStreamBankCount};
     std::uint32_t sampleRate{kSampleRate};
     std::atomic<bool> engineRunning{false};
     std::atomic<bool> ioRunning{false};
     std::atomic<bool> rxActive{false};
     std::atomic<bool> txActive{false};
     std::atomic<bool> ptpLocked{false};
-    std::array<SharedAudioRing, kChannels> networkToCoreAudio;
-    std::array<SharedAudioRing, kChannels> coreAudioToNetwork;
+    std::atomic<std::uint32_t> activeStreamCount{0};
+    std::array<SharedAudioRing, kVirtualChannels> networkToCoreAudio;
+    std::array<SharedAudioRing, kVirtualChannels> coreAudioToNetwork;
     std::array<SharedDiscoveredSession, kMaximumDiscoveredSessions> discoveredSessions;
     SharedStatistics statistics;
 };

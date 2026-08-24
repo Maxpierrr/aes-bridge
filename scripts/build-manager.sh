@@ -10,9 +10,16 @@ app_dir="${stage_dir}/AES Bridge.app"
 module_cache="${stage_dir}/ModuleCache"
 mkdir -p "${app_dir}/Contents/MacOS" "${app_dir}/Contents/Resources" "${module_cache}"
 export CLANG_MODULE_CACHE_PATH="${module_cache}"
+sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+clt_compat_sdk="/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk"
+if [[ "$(xcode-select -p)" == "/Library/Developer/CommandLineTools" && -d "${clt_compat_sdk}" ]]; then
+  # The macOS 26.5 CLT image currently pairs Swift 6.3.3 with 6.3.2 SDK
+  # interfaces. The bundled 15.4 SDK is compatible and still targets macOS 13.
+  sdk_path="${clt_compat_sdk}"
+fi
 swiftc -parse-as-library -O \
   -target arm64-apple-macos13.0 \
-  -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
+  -sdk "${sdk_path}" \
   -framework SwiftUI -framework AppKit -framework Foundation \
   "${project_dir}/ManagerApp/AESBridgeManager.swift" \
   -o "${app_dir}/Contents/MacOS/AESBridgeManager"

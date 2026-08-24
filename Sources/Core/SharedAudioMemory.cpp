@@ -37,7 +37,9 @@ bool SharedAudioMemory::open(bool createAndReset) noexcept {
     if (memory == MAP_FAILED) { lastError_ = errno; block_ = nullptr; close(); return false; }
     block_ = static_cast<SharedAudioBlock*>(memory);
     if (createAndReset) new (block_) SharedAudioBlock{};
-    if (block_->magic != kSharedMagic || block_->version != kSharedVersion || block_->channels != kChannels || block_->sampleRate != kSampleRate) {
+    if (block_->magic != kSharedMagic || block_->version != kSharedVersion
+        || block_->channels != kVirtualChannels || block_->channelsPerStream != kAES67ChannelsPerStream
+        || block_->streamBankCount != kStreamBankCount || block_->sampleRate != kSampleRate) {
         lastError_ = EPROTO;
         close(); return false;
     }

@@ -6,8 +6,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace lxtool::aes67 {
 
@@ -21,6 +23,8 @@ struct LiveEngineConfig final {
     std::uint16_t txPort{5004};
     std::uint8_t rxPayloadType{kPayloadType};
     std::uint8_t txPayloadType{kPayloadType};
+    std::size_t streamCount{1};
+    std::uint16_t portStride{0};
     std::size_t jitterPackets{kDefaultJitterPackets};
     std::string sapAddress{std::string(kSAPMulticast)};
     std::uint16_t sapPort{kSAPPort};
@@ -42,19 +46,29 @@ public:
     [[nodiscard]] const std::string& interfaceAddress() const noexcept { return config_.interfaceAddress; }
     static std::string interfaceIPv4(const std::string& interfaceName);
 private:
-    void receiveLoop();
-    void consumeLoop();
-    void transmitLoop();
+    struct StreamRuntime final {
+        explicit StreamRuntime(std::size_t jitterPackets) : jitter(jitterPackets) {}
+        JitterBuffer<64, 1200> jitter;
+        std::atomic<bool> jitterResetRequested{false};
+        bool rxActive{false};
+        bool txActive{false};
+        std::thread receiveThread;
+        std::thread consumeThread;
+        std::thread transmitThread;
+    };
+    void receiveLoop(std::size_t bank, StreamRuntime& runtime);
+    void consumeLoop(std::size_t bank, StreamRuntime& runtime);
+    void transmitLoop(std::size_t bank, StreamRuntime& runtime);
     void sapPublishLoop();
     void sapDiscoveryLoop();
+    void setRxActive(StreamRuntime& runtime, bool active) noexcept;
+    void setTxActive(StreamRuntime& runtime, bool active) noexcept;
     LiveEngineConfig config_;
-    JitterBuffer<64, 1200> jitter_;
     SharedAudioMemory sharedMemory_;
     std::atomic<bool> running_{false};
-    std::atomic<bool> jitterResetRequested_{false};
-    std::thread receiveThread_;
-    std::thread consumeThread_;
-    std::thread transmitThread_;
+    std::atomic<std::size_t> activeReceivers_{0};
+    std::atomic<std::size_t> activeTransmitters_{0};
+    std::vector<std::unique_ptr<StreamRuntime>> streams_;
     std::thread sapPublishThread_;
     std::thread sapDiscoveryThread_;
 };

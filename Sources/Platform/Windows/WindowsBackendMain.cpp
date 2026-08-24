@@ -47,10 +47,12 @@ bool selfTest() {
     WindowsSharedAudioMemory owner;
     WindowsSharedAudioMemory peer;
     if (!owner.open(true) || !peer.open(false) || !owner.get() || !peer.get()) return false;
+    if (owner.get()->channels != kVirtualChannels || owner.get()->channelsPerStream != kAES67ChannelsPerStream
+        || owner.get()->streamBankCount != kStreamBankCount) return false;
     const std::array<float, 4> sharedInput{0.1F, 0.2F, 0.3F, 0.4F};
     std::array<float, 4> sharedOutput{};
-    if (owner.get()->coreAudioToNetwork[0].write(sharedInput) != sharedInput.size()
-        || peer.get()->coreAudioToNetwork[0].read(sharedOutput) != sharedOutput.size()
+    if (owner.get()->coreAudioToNetwork[63].write(sharedInput) != sharedInput.size()
+        || peer.get()->coreAudioToNetwork[63].read(sharedOutput) != sharedOutput.size()
         || sharedInput != sharedOutput) return false;
     return true;
 }

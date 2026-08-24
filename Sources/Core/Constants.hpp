@@ -7,7 +7,12 @@
 
 namespace lxtool::aes67 {
 
-inline constexpr std::size_t kChannels = 8;
+// Keep each 1 ms L24 RTP payload below the standard Ethernet MTU. The virtual
+// endpoint is 64 channels, split into eight independent 8-channel AES67 banks.
+inline constexpr std::size_t kAES67ChannelsPerStream = 8;
+inline constexpr std::size_t kStreamBankCount = 8;
+inline constexpr std::size_t kVirtualChannels = kAES67ChannelsPerStream * kStreamBankCount;
+inline constexpr std::size_t kChannels = kAES67ChannelsPerStream;
 inline constexpr std::uint32_t kSampleRate = 48'000;
 inline constexpr std::uint32_t kPacketTimeMicroseconds = 1'000;
 inline constexpr std::size_t kFramesPerPacket = 48;
@@ -25,5 +30,6 @@ inline constexpr std::uint32_t kSafeLatencyMilliseconds = 6;
 inline constexpr std::size_t kDefaultJitterPackets = 6;
 
 static_assert(kPayloadBytes == 1152);
+static_assert(kVirtualChannels == 64);
 
 } // namespace lxtool::aes67
