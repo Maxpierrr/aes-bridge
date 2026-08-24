@@ -47,10 +47,31 @@ kill -TERM "${engine_pid}"
 wait "${engine_pid}"
 engine_pid=""
 
-stopped_status="$("${engine}" --status)"
-case "${stopped_status}" in
-    *'"engineRunning":false'*) ;;
-    *) echo "engine did not publish a stopped state" >&2; exit 1 ;;
-esac
+if "${engine}" --status >/dev/null 2>&1; then
+    echo "stopped engine still reported an active status" >&2
+    exit 1
+fi
+
+"${engine}" --run --interface-address 127.0.0.1 --profile computer-a \
+    --rx-group 127.0.0.1 --tx-group 127.0.0.1 \
+    --rx-port 55120 --tx-port 55120 --port-stride 1 \
+    --jitter-packets 3 --no-sap --no-ptp --duration 5 \
+    >"${test_dir}/crash.log" 2>&1 &
+engine_pid="$!"
+
+attempt=0
+while [ "${attempt}" -lt 40 ]; do
+    if "${engine}" --status >/dev/null 2>&1; then break; fi
+    attempt=$((attempt + 1))
+    sleep 0.05
+done
+[ "${attempt}" -lt 40 ] || { echo "restarted engine status did not become ready" >&2; exit 1; }
+kill -KILL "${engine_pid}"
+wait "${engine_pid}" 2>/dev/null || true
+engine_pid=""
+if "${engine}" --status >/dev/null 2>&1; then
+    echo "crashed engine left a false active status" >&2
+    exit 1
+fi
 
 echo "AES Bridge engine CLI lifecycle passed"

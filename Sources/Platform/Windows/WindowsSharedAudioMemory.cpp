@@ -69,6 +69,17 @@ void SharedAudioMemory::close() noexcept {
     ownershipSemaphore_ = nullptr;
 }
 
+bool SharedAudioMemory::ownerActive() noexcept {
+    HANDLE semaphore = OpenSemaphoreW(SYNCHRONIZE | SEMAPHORE_MODIFY_STATE, FALSE,
+        kWindowsEngineOwnerSemaphoreName);
+    if (!semaphore) return false;
+    const DWORD ownership = WaitForSingleObject(semaphore, 0);
+    const bool active = ownership == WAIT_TIMEOUT;
+    if (ownership == WAIT_OBJECT_0) ReleaseSemaphore(semaphore, 1, nullptr);
+    CloseHandle(semaphore);
+    return active;
+}
+
 bool SharedAudioMemory::remove() noexcept {
     // Named page-file mappings disappear automatically after the last handle
     // closes. There is no persistent filesystem object to unlink on Windows.

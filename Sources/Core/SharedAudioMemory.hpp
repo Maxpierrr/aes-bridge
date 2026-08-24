@@ -98,6 +98,7 @@ public:
     void close() noexcept;
     [[nodiscard]] SharedAudioBlock* get() const noexcept { return block_; }
     [[nodiscard]] int lastError() const noexcept { return lastError_; }
+    [[nodiscard]] static bool ownerActive() noexcept;
     static bool remove() noexcept;
 private:
 #if defined(_WIN32)

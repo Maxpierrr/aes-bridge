@@ -115,6 +115,11 @@ atomics and rings underneath an active audio callback. Automated tests retain
 queued samples and the `ioRunning` state across this owner restart and reject a
 simultaneous second owner.
 
+The CLI does not trust the shared `engineRunning` flag by itself because a
+process killed before cleanup can leave that atomic set. Status now also probes
+the live owner lock/semaphore. The lifecycle test performs both a graceful stop
+and a forced `SIGKILL`, and rejects an active status after either case.
+
 The macOS test suite loads the built `.driver` binary, calls its Core Audio
 factory with a minimal host interface, discovers its device and both streams,
 and verifies the fixed identity, 48 kHz nominal rate and 64-channel float32

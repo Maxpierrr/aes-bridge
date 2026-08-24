@@ -151,7 +151,8 @@ int main(int argc, char** argv) {
     }
     if (hasOption(argc, argv, "--status")) {
         lxtool::aes67::SharedAudioMemory shared;
-        if (!shared.open(false)) {
+        if (!shared.open(false) || !lxtool::aes67::SharedAudioMemory::ownerActive()
+            || !shared.get()->engineRunning.load(std::memory_order_acquire)) {
             std::cerr << "AES Bridge n'est pas démarré.\n";
             return 2;
         }

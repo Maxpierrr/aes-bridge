@@ -31,6 +31,7 @@ endpoint.
 | Live RTP RX/TX, 48 frames every 1 ms | Implemented; eight-stream/64-channel loopback passes |
 | Engine ↔ driver lock-free mmap bridge | Implemented and tested between mappings |
 | Driver-first start and engine restart | Driver prepares safe silence before the engine; owner restart preserves the live mapping and queued audio |
+| Crash-safe engine status | Status requires both a live owner lock and `engineRunning`; forced-crash lifecycle test rejects stale state |
 | SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
 | Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |

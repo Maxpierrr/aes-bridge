@@ -171,11 +171,13 @@ void testUDPLoopback() {
 
 void testSharedAudioMemory() {
     CHECK(lxtool::aes67::SharedAudioMemory::remove());
+    CHECK(!lxtool::aes67::SharedAudioMemory::ownerActive());
     lxtool::aes67::SharedAudioMemory owner;
     lxtool::aes67::SharedAudioMemory peer;
     const bool ownerOpened = owner.open(true);
     if (!ownerOpened) std::cerr << "shared-memory owner errno=" << owner.lastError() << '\n';
     CHECK(ownerOpened);
+    CHECK(lxtool::aes67::SharedAudioMemory::ownerActive());
     const bool peerOpened = peer.open(false);
     if (!peerOpened) std::cerr << "shared-memory peer errno=" << peer.lastError() << '\n';
     CHECK(peerOpened);
@@ -203,6 +205,7 @@ void testSharedAudioMemory() {
     lxtool::aes67::SharedAudioMemory duplicateOwner;
     CHECK(!duplicateOwner.open(true));
     restartedOwner.close();
+    CHECK(!lxtool::aes67::SharedAudioMemory::ownerActive());
     peer.close();
     CHECK(lxtool::aes67::SharedAudioMemory::remove());
 }

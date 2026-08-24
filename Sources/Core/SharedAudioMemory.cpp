@@ -61,6 +61,15 @@ void SharedAudioMemory::close() noexcept {
     descriptor_ = -1;
 }
 
+bool SharedAudioMemory::ownerActive() noexcept {
+    const int descriptor = ::open(kSharedMemoryPath, O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+    if (descriptor < 0) return false;
+    const bool active = flock(descriptor, LOCK_EX | LOCK_NB) != 0 && (errno == EWOULDBLOCK || errno == EAGAIN);
+    if (!active) (void)flock(descriptor, LOCK_UN);
+    ::close(descriptor);
+    return active;
+}
+
 bool SharedAudioMemory::remove() noexcept { return unlink(kSharedMemoryPath) == 0 || errno == ENOENT; }
 
 } // namespace lxtool::aes67
