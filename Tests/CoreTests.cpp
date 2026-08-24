@@ -513,13 +513,15 @@ void testBankTimestampAlignment() {
     }
     CHECK(!firstPackets.empty());
     CHECK(!secondPackets.empty());
-    const bool aligned = std::any_of(firstPackets.begin(), firstPackets.end(), [&](const RTPPacket& first) {
-        return std::any_of(secondPackets.begin(), secondPackets.end(), [&](const RTPPacket& second) {
-            return first.timestamp == second.timestamp;
-        });
-    });
-    CHECK(aligned);
-    if (!firstPackets.empty() && !secondPackets.empty()) CHECK(firstPackets.front().ssrc != secondPackets.front().ssrc);
+    if (!firstPackets.empty() && !secondPackets.empty()) {
+        const auto phase = firstPackets.front().timestamp % kFramesPerPacket;
+        const auto hasSharedPhase = [phase](const RTPPacket& packet) {
+            return packet.timestamp % kFramesPerPacket == phase;
+        };
+        CHECK(std::all_of(firstPackets.begin(), firstPackets.end(), hasSharedPhase));
+        CHECK(std::all_of(secondPackets.begin(), secondPackets.end(), hasSharedPhase));
+        CHECK(firstPackets.front().ssrc != secondPackets.front().ssrc);
+    }
     engine.stop();
     CHECK(SharedAudioMemory::remove());
 }
