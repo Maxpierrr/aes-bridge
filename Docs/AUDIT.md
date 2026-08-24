@@ -107,6 +107,14 @@ loopback, SAP, reconnect and simulated PTP tests plus a two-process status and
 lifecycle test. It remains preparation only: no Windows virtual audio endpoint
 or driver is claimed yet.
 
+The HAL driver can load before the user engine. Outside the audio callback it
+prepares a valid silent shared block, then maps it as a peer. Engine ownership
+uses an advisory file lock on macOS and a named single-owner semaphore on
+Windows. A later owner preserves a valid mapping instead of placement-creating
+atomics and rings underneath an active audio callback. Automated tests retain
+queued samples and the `ioRunning` state across this owner restart and reject a
+simultaneous second owner.
+
 The macOS test suite loads the built `.driver` binary, calls its Core Audio
 factory with a minimal host interface, discovers its device and both streams,
 and verifies the fixed identity, 48 kHz nominal rate and 64-channel float32

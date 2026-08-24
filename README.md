@@ -30,6 +30,7 @@ endpoint.
 | Explicit interface-address UDP binding | Implemented; loopback tested |
 | Live RTP RX/TX, 48 frames every 1 ms | Implemented; eight-stream/64-channel loopback passes |
 | Engine ↔ driver lock-free mmap bridge | Implemented and tested between mappings |
+| Driver-first start and engine restart | Driver prepares safe silence before the engine; owner restart preserves the live mapping and queued audio |
 | SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
 | Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |
@@ -41,6 +42,11 @@ endpoint.
 The audio callback only performs bounded copies through preallocated SPSC
 rings and atomic counter updates. It contains no network access, locks,
 allocation, logging or blocking calls.
+
+The driver prepares a valid shared block during non-real-time initialization
+when the engine has never run. Starting or restarting the engine then takes
+exclusive ownership without reconstructing a valid block that a DAW may already
+be using. This keeps the callback pointer and queued lock-free rings stable.
 
 PTP currently uses software ingress/egress timestamps. A lock requires fresh
 Announce and Sync/Follow_Up messages plus four stable Delay_Req/Delay_Resp E2E

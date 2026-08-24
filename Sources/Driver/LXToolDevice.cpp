@@ -6,6 +6,13 @@
 
 namespace lxtool::aes67 {
 namespace {
+bool openDriverSharedMemory(SharedAudioMemory& memory) noexcept {
+    if (memory.open(false)) return true;
+    SharedAudioMemory initializer;
+    if (!initializer.open(true)) return false;
+    return memory.open(false);
+}
+
 aspl::StreamParameters streamParameters(aspl::Direction direction) {
     aspl::StreamParameters parameters;
     parameters.Direction = direction;
@@ -30,7 +37,7 @@ LXToolDevice::LXToolDevice(std::shared_ptr<aspl::Context> context)
         .SampleRate = kSampleRate, .ChannelCount = kVirtualChannels}) {}
 
 void LXToolDevice::initialize() {
-    if (sharedMemory_.open(false)) bridge_ = sharedMemory_.get();
+    if (openDriverSharedMemory(sharedMemory_)) bridge_ = sharedMemory_.get();
     const auto self = std::static_pointer_cast<aspl::Device>(shared_from_this());
     inputStream_ = std::make_shared<aspl::Stream>(GetContext(), self, streamParameters(aspl::Direction::Input));
     outputStream_ = std::make_shared<aspl::Stream>(GetContext(), self, streamParameters(aspl::Direction::Output));
@@ -44,7 +51,7 @@ std::vector<AudioValueRange> LXToolDevice::GetAvailableSampleRates() const { ret
 std::string LXToolDevice::GetDeviceUID() const { return "org.maxpierr.aesbridge.device"; }
 
 OSStatus LXToolDevice::StartIOImpl(UInt32 clientID, UInt32 startCount) {
-    if (!bridge_ && sharedMemory_.open(false)) {
+    if (!bridge_ && openDriverSharedMemory(sharedMemory_)) {
         bridge_ = sharedMemory_.get();
         ioHandler_->attach(bridge_);
     }

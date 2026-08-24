@@ -6,6 +6,7 @@
 namespace lxtool::aes67 {
 
 inline constexpr wchar_t kWindowsSharedAudioName[] = L"Local\\AESBridge.Audio.v3";
+inline constexpr wchar_t kWindowsEngineOwnerSemaphoreName[] = L"Local\\AESBridge.EngineOwner.v3";
 using WindowsSharedAudioMemory = SharedAudioMemory;
 
 } // namespace lxtool::aes67

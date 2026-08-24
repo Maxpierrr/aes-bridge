@@ -94,7 +94,7 @@ public:
     ~SharedAudioMemory();
     SharedAudioMemory(const SharedAudioMemory&) = delete;
     SharedAudioMemory& operator=(const SharedAudioMemory&) = delete;
-    bool open(bool createAndReset) noexcept;
+    bool open(bool createOwner) noexcept;
     void close() noexcept;
     [[nodiscard]] SharedAudioBlock* get() const noexcept { return block_; }
     [[nodiscard]] int lastError() const noexcept { return lastError_; }
@@ -102,6 +102,7 @@ public:
 private:
 #if defined(_WIN32)
     void* mapping_{nullptr};
+    void* ownershipSemaphore_{nullptr};
 #else
     int descriptor_{-1};
 #endif

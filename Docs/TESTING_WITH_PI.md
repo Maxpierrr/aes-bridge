@@ -83,6 +83,12 @@ a non-production Mac and reboot. In Audio MIDI Setup verify exactly one device
 named `AES Bridge`, 64 inputs, 64 outputs and only 48 kHz. Then test Reaper,
 Logic Pro and QLab separately, starting at 6 ms network jitter latency.
 
+Also test the driver-first sequence: open the AES Bridge device in the DAW
+before launching the manager, confirm silent input, then start the engine while
+the DAW transport remains active. Audio must begin without reopening the device.
+Stop and restart the engine once more; the DAW must retain the same device and
+channel order throughout.
+
 Before `sudo`, run `Installer/preflight.sh` with the CMake build directory and
 manager app path. The preflight must report valid IDs, architecture, factory,
 signatures and HAL/RTP roundtrip. Quit every running AES Bridge instance before

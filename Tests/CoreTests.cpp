@@ -190,7 +190,19 @@ void testSharedAudioMemory() {
     CHECK(owner.get()->coreAudioToNetwork[63].write(sent) == sent.size());
     CHECK(peer.get()->coreAudioToNetwork[63].read(received) == received.size());
     CHECK(received == sent);
+    const std::array<float, 4> queuedAcrossRestart{0.5F, 0.6F, 0.7F, 0.8F};
+    std::array<float, 4> receivedAcrossRestart{};
+    peer.get()->ioRunning.store(true, std::memory_order_release);
+    CHECK(owner.get()->coreAudioToNetwork[62].write(queuedAcrossRestart) == queuedAcrossRestart.size());
     owner.close();
+    lxtool::aes67::SharedAudioMemory restartedOwner;
+    CHECK(restartedOwner.open(true));
+    CHECK(restartedOwner.get() && restartedOwner.get()->ioRunning.load(std::memory_order_acquire));
+    CHECK(peer.get()->coreAudioToNetwork[62].read(receivedAcrossRestart) == receivedAcrossRestart.size());
+    CHECK(receivedAcrossRestart == queuedAcrossRestart);
+    lxtool::aes67::SharedAudioMemory duplicateOwner;
+    CHECK(!duplicateOwner.open(true));
+    restartedOwner.close();
     peer.close();
     CHECK(lxtool::aes67::SharedAudioMemory::remove());
 }

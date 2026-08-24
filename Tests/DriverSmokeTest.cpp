@@ -125,12 +125,10 @@ int main(int argc, char** argv) {
         return 2;
     }
     SharedMemoryFixture shared;
-    if (!SharedAudioMemory::remove() || !shared.memory.open(true)) {
-        std::cerr << "mémoire audio partagée indisponible\n";
+    if (!SharedAudioMemory::remove()) {
+        std::cerr << "nettoyage de la mémoire audio partagée impossible\n";
         return 1;
     }
-    auto* block = shared.memory.get();
-    block->engineRunning.store(true, std::memory_order_release);
 
     void* image = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (!image) {
@@ -161,6 +159,15 @@ int main(int argc, char** argv) {
     host.RequestDeviceConfigurationChange = requestConfigurationChange;
     if (driver.interface->Initialize(driver.reference, &host) != kAudioHardwareNoError) {
         std::cerr << "initialisation HAL échouée\n";
+        return 1;
+    }
+    if (!shared.memory.open(false)) {
+        std::cerr << "le pilote n'a pas préparé la mémoire partagée avant le moteur\n";
+        return 1;
+    }
+    auto* block = shared.memory.get();
+    if (!block || block->engineRunning.load(std::memory_order_acquire)) {
+        std::cerr << "état initial de la mémoire partagée du pilote invalide\n";
         return 1;
     }
 
@@ -231,6 +238,18 @@ int main(int argc, char** argv) {
     std::array<Float32, sampleCount> expectedInput{};
     std::array<Float32, sampleCount> inputBuffer{};
     std::array<Float32, kFramesPerPacket> channel{};
+    AudioServerPlugInIOCycleInfo cycle{};
+    cycle.mInputTime.mSampleTime = sampleTime;
+    cycle.mInputTime.mFlags = kAudioTimeStampSampleTimeValid;
+    cycle.mOutputTime = cycle.mInputTime;
+    inputBuffer.fill(1.0F);
+    if (!runOperation(driver, device, streams[0], clientID,
+            kAudioServerPlugInIOOperationReadInput, frameCount, cycle, inputBuffer.data())
+        || !std::all_of(inputBuffer.begin(), inputBuffer.end(), [](Float32 sample) { return sample == 0.0F; })) {
+        std::cerr << "silence HAL invalide avant le premier démarrage du moteur\n";
+        return 1;
+    }
+    block->engineRunning.store(true, std::memory_order_release);
     for (std::size_t channelIndex = 0; channelIndex < kVirtualChannels; ++channelIndex) {
         for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) {
             channel[frame] = static_cast<Float32>(channelIndex + 1) / 100.0F
@@ -242,10 +261,6 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    AudioServerPlugInIOCycleInfo cycle{};
-    cycle.mInputTime.mSampleTime = sampleTime;
-    cycle.mInputTime.mFlags = kAudioTimeStampSampleTimeValid;
-    cycle.mOutputTime = cycle.mInputTime;
     if (!runOperation(driver, device, streams[0], clientID,
             kAudioServerPlugInIOOperationReadInput, frameCount, cycle, inputBuffer.data())
         || !std::equal(inputBuffer.begin(), inputBuffer.end(), expectedInput.begin(), approximatelyEqual)) {
