@@ -15,6 +15,8 @@ jobs:
         run: cmake --build build --parallel
       - name: Build SwiftUI manager
         run: /bin/zsh scripts/build-manager.sh "$PWD/build/aes-bridge-engine"
+      - name: Validate installer artifacts
+        run: /bin/zsh Installer/preflight.sh "$PWD/build" "/private/tmp/aes-bridge-dist/AES Bridge.app" --no-runtime
       - name: Test
         run: ctest --test-dir build --output-on-failure
   windows:

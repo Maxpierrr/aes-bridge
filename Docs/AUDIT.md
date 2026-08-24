@@ -128,3 +128,10 @@ polls. Numeric and IPv4 multicast parameters are checked before launch,
 restart waits for actual process termination, stderr is surfaced on failure,
 and the child engine is terminated when the manager view closes. A separate
 CLI smoke test verifies the same start/status/SIGTERM contract used by SwiftUI.
+
+The development installer performs a non-privileged-style artifact preflight,
+stages both exact bundles in their destination volumes, clears extended
+attributes, ad-hoc signs and verifies them before replacing an older AES Bridge
+bundle. It refuses to run while the manager or engine is active. Uninstallation
+checks the expected bundle identifiers before deleting only the documented
+driver, application and shared-memory paths.

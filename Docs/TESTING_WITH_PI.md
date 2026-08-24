@@ -83,6 +83,12 @@ a non-production Mac and reboot. In Audio MIDI Setup verify exactly one device
 named `AES Bridge`, 64 inputs, 64 outputs and only 48 kHz. Then test Reaper,
 Logic Pro and QLab separately, starting at 6 ms network jitter latency.
 
+Before `sudo`, run `Installer/preflight.sh` with the CMake build directory and
+manager app path. The preflight must report valid IDs, architecture, factory,
+signatures and HAL/RTP roundtrip. Quit every running AES Bridge instance before
+running `Installer/install-dev.sh`; the installer deliberately refuses to
+replace a running development build.
+
 The device should expose 64 inputs and 64 outputs; in the Raspberry profile,
 only channels 1–8 carry the physical RASPIAUDIO interface and channels 9–64
 remain reserved for the additional computer-to-computer banks.

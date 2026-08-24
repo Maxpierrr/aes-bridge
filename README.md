@@ -126,7 +126,15 @@ extended attributes and re-signs its exact destination during development).
 ## Installation policy
 
 Do not install this checkpoint on a production machine. After reviewing the
-remaining PTP limitation, a development install will be:
+remaining PTP limitation, first run the non-administrator preflight. It checks
+bundle IDs, native architecture, the Core Audio factory, signatures and the
+full HAL/RTP loopback when no older driver is installed:
+
+```sh
+./Installer/preflight.sh /private/tmp/aes-bridge-build "/private/tmp/aes-bridge-dist/AES Bridge.app"
+```
+
+Then perform the development install:
 
 ```sh
 sudo ./Installer/install-dev.sh /private/tmp/aes-bridge-build "/private/tmp/aes-bridge-dist/AES Bridge.app"
@@ -134,7 +142,10 @@ sudo ./Installer/install-dev.sh /private/tmp/aes-bridge-build "/private/tmp/aes-
 
 It uses `/Library/Audio/Plug-Ins/HAL/AESBridge.driver`, the Apple-documented
 HAL location. It does not disable SIP, request Reduced Security, or install a
-kernel extension. The uninstaller removes only the exact AES Bridge paths:
+kernel extension. Both bundles are copied to hidden staging directories,
+ad-hoc signed and verified before the previous exact AES Bridge destinations
+are replaced, preventing stale files from older versions. The uninstaller
+checks both bundle IDs and removes only the exact AES Bridge paths:
 
 ```sh
 sudo ./Installer/uninstall.sh
