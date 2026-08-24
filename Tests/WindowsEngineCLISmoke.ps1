@@ -31,12 +31,13 @@ try {
         }
     }
     if ($null -eq $status) {
-        throw "Le backend Windows n'a pas publié un statut 64 canaux valide."
+        throw "Windows backend did not publish valid 64-channel status."
     }
-    Wait-Process -Id $backend.Id -Timeout 8
-    $backend.Refresh()
+    if (!$backend.WaitForExit(8000)) {
+        throw "Windows backend did not stop after its configured duration."
+    }
     if ($backend.ExitCode -ne 0) {
-        throw "Le backend Windows s'est arrêté avec le code $($backend.ExitCode)."
+        throw "Windows backend exited with code $($backend.ExitCode)."
     }
     Write-Output "AES Bridge Windows CLI lifecycle passed"
 }
