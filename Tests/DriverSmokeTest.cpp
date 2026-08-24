@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "Core/Constants.hpp"
+#include "Core/SharedAudioMemory.hpp"
 
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -73,6 +76,34 @@ bool checkStream(const DriverAccess& driver, AudioObjectID stream) {
         && format.mBytesPerFrame == kVirtualChannels * sizeof(Float32)
         && format.mFramesPerPacket == 1;
 }
+
+struct SharedMemoryFixture final {
+    SharedAudioMemory memory;
+    ~SharedMemoryFixture() {
+        memory.close();
+        (void)SharedAudioMemory::remove();
+    }
+};
+
+bool runOperation(const DriverAccess& driver, AudioObjectID device, AudioObjectID stream,
+    UInt32 clientID, UInt32 operation, UInt32 frameCount, AudioServerPlugInIOCycleInfo& cycle,
+    void* buffer) {
+    Boolean willDo = false;
+    Boolean inPlace = false;
+    if (driver.interface->WillDoIOOperation(driver.reference, device, clientID, operation,
+            &willDo, &inPlace) != kAudioHardwareNoError || !willDo || !inPlace) return false;
+    if (driver.interface->BeginIOOperation(driver.reference, device, clientID, operation,
+            frameCount, &cycle) != kAudioHardwareNoError) return false;
+    const auto status = driver.interface->DoIOOperation(driver.reference, device, stream,
+        clientID, operation, frameCount, &cycle, buffer, nullptr);
+    const auto endStatus = driver.interface->EndIOOperation(driver.reference, device, clientID,
+        operation, frameCount, &cycle);
+    return status == kAudioHardwareNoError && endStatus == kAudioHardwareNoError;
+}
+
+bool approximatelyEqual(Float32 left, Float32 right) {
+    return std::abs(left - right) < 0.000001F;
+}
 }
 
 int main(int argc, char** argv) {
@@ -80,6 +111,14 @@ int main(int argc, char** argv) {
         std::cerr << "usage: AESBridgeDriverSmoke <driver-binary>\n";
         return 2;
     }
+    SharedMemoryFixture shared;
+    if (!SharedAudioMemory::remove() || !shared.memory.open(true)) {
+        std::cerr << "mémoire audio partagée indisponible\n";
+        return 1;
+    }
+    auto* block = shared.memory.get();
+    block->engineRunning.store(true, std::memory_order_release);
+
     void* image = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (!image) {
         std::cerr << "dlopen: " << dlerror() << '\n';
@@ -135,20 +174,117 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    for (const auto scope : {kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput}) {
+    std::array<AudioObjectID, 2> streams{};
+    const std::array<AudioObjectPropertyScope, 2> scopes{
+        kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput};
+    for (std::size_t index = 0; index < scopes.size(); ++index) {
         std::vector<std::uint8_t> streamBytes;
-        if (!driver.data(device, kAudioDevicePropertyStreams, scope, streamBytes)
+        if (!driver.data(device, kAudioDevicePropertyStreams, scopes[index], streamBytes)
             || streamBytes.size() != sizeof(AudioObjectID)) {
             std::cerr << "flux HAL 64 canaux invalide\n";
             return 1;
         }
-        AudioObjectID stream = kAudioObjectUnknown;
-        std::memcpy(&stream, streamBytes.data(), sizeof(stream));
-        if (!checkStream(driver, stream)) {
+        std::memcpy(&streams[index], streamBytes.data(), sizeof(streams[index]));
+        if (!checkStream(driver, streams[index])) {
             std::cerr << "format du flux HAL invalide\n";
             return 1;
         }
     }
-    std::cout << "AES Bridge HAL smoke test passed: 64 inputs, 64 outputs, 48 kHz\n";
+
+    constexpr UInt32 clientID = 42;
+    AudioServerPlugInClientInfo client{};
+    client.mClientID = clientID;
+    client.mProcessID = 1;
+    client.mIsNativeEndian = true;
+    client.mBundleID = CFSTR("org.maxpierr.aesbridge.smoke-test");
+    if (driver.interface->AddDeviceClient(driver.reference, device, &client) != kAudioHardwareNoError
+        || driver.interface->StartIO(driver.reference, device, clientID) != kAudioHardwareNoError
+        || !block->ioRunning.load(std::memory_order_acquire)) {
+        std::cerr << "démarrage des E/S HAL échoué\n";
+        return 1;
+    }
+
+    Float64 sampleTime = 0;
+    UInt64 hostTime = 0;
+    UInt64 seed = 0;
+    if (driver.interface->GetZeroTimeStamp(driver.reference, device, clientID,
+            &sampleTime, &hostTime, &seed) != kAudioHardwareNoError || hostTime == 0 || seed == 0) {
+        std::cerr << "horloge HAL invalide\n";
+        return 1;
+    }
+
+    constexpr UInt32 frameCount = static_cast<UInt32>(kFramesPerPacket);
+    constexpr std::size_t sampleCount = kFramesPerPacket * kVirtualChannels;
+    std::array<Float32, sampleCount> expectedInput{};
+    std::array<Float32, sampleCount> inputBuffer{};
+    std::array<Float32, kFramesPerPacket> channel{};
+    for (std::size_t channelIndex = 0; channelIndex < kVirtualChannels; ++channelIndex) {
+        for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) {
+            channel[frame] = static_cast<Float32>(channelIndex + 1) / 100.0F
+                + static_cast<Float32>(frame) / 100'000.0F;
+            expectedInput[frame * kVirtualChannels + channelIndex] = channel[frame];
+        }
+        if (block->networkToCoreAudio[channelIndex].write(channel) != channel.size()) {
+            std::cerr << "préparation des entrées partagées échouée\n";
+            return 1;
+        }
+    }
+    AudioServerPlugInIOCycleInfo cycle{};
+    cycle.mInputTime.mSampleTime = sampleTime;
+    cycle.mInputTime.mFlags = kAudioTimeStampSampleTimeValid;
+    cycle.mOutputTime = cycle.mInputTime;
+    if (!runOperation(driver, device, streams[0], clientID,
+            kAudioServerPlugInIOOperationReadInput, frameCount, cycle, inputBuffer.data())
+        || !std::equal(inputBuffer.begin(), inputBuffer.end(), expectedInput.begin(), approximatelyEqual)) {
+        std::cerr << "callback d’entrée HAL 64 canaux invalide\n";
+        return 1;
+    }
+
+    std::array<Float32, sampleCount> outputBuffer{};
+    for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) {
+        for (std::size_t channelIndex = 0; channelIndex < kVirtualChannels; ++channelIndex) {
+            outputBuffer[frame * kVirtualChannels + channelIndex]
+                = -static_cast<Float32>(channelIndex + 1) / 100.0F
+                - static_cast<Float32>(frame) / 100'000.0F;
+        }
+    }
+    if (!runOperation(driver, device, streams[1], clientID,
+            kAudioServerPlugInIOOperationProcessMix, frameCount, cycle, outputBuffer.data())
+        || !runOperation(driver, device, streams[1], clientID,
+            kAudioServerPlugInIOOperationWriteMix, frameCount, cycle, outputBuffer.data())) {
+        std::cerr << "callback de sortie HAL mixée invalide\n";
+        return 1;
+    }
+    for (std::size_t channelIndex = 0; channelIndex < kVirtualChannels; ++channelIndex) {
+        std::array<Float32, kFramesPerPacket> received{};
+        if (block->coreAudioToNetwork[channelIndex].read(received) != received.size()) {
+            std::cerr << "sortie HAL absente sur le canal " << channelIndex + 1 << '\n';
+            return 1;
+        }
+        for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) {
+            const auto expected = outputBuffer[frame * kVirtualChannels + channelIndex];
+            if (!approximatelyEqual(received[frame], expected)) {
+                std::cerr << "ordre de sortie HAL invalide sur le canal " << channelIndex + 1 << '\n';
+                return 1;
+            }
+        }
+    }
+
+    block->engineRunning.store(false, std::memory_order_release);
+    inputBuffer.fill(1.0F);
+    if (!runOperation(driver, device, streams[0], clientID,
+            kAudioServerPlugInIOOperationReadInput, frameCount, cycle, inputBuffer.data())
+        || !std::all_of(inputBuffer.begin(), inputBuffer.end(), [](Float32 sample) { return sample == 0.0F; })) {
+        std::cerr << "silence de sécurité HAL invalide\n";
+        return 1;
+    }
+    if (driver.interface->StopIO(driver.reference, device, clientID) != kAudioHardwareNoError
+        || block->ioRunning.load(std::memory_order_acquire)
+        || driver.interface->RemoveDeviceClient(driver.reference, device, &client) != kAudioHardwareNoError) {
+        std::cerr << "arrêt des E/S HAL échoué\n";
+        return 1;
+    }
+
+    std::cout << "AES Bridge HAL smoke test passed: bidirectional 64x64 callbacks at 48 kHz\n";
     return 0;
 }

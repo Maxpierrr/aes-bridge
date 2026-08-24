@@ -108,9 +108,12 @@ endpoint or driver is claimed yet.
 The macOS test suite loads the built `.driver` binary, calls its Core Audio
 factory with a minimal host interface, discovers its device and both streams,
 and verifies the fixed identity, 48 kHz nominal rate and 64-channel float32
-input/output formats. This catches bundle/property inconsistencies without an
-administrator install. It does not replace validation through `coreaudiod`,
-Audio MIDI Setup and real Core Audio clients after installation.
+input/output formats. It then starts HAL I/O and verifies `ReadInput`,
+`ProcessMix` and `WriteMix` through the shared rings for all 64 channels,
+including the safe-silence path when the engine is unavailable. This caught a
+real mismatch where host-mixed output used libASPL's unimplemented default
+callback. It does not replace validation through `coreaudiod`, Audio MIDI Setup
+and real Core Audio clients after installation.
 
 The macOS manager and HAL bundle are ad-hoc signed development artifacts.
 Command Line Tools are sufficient to compile them. A public build that opens

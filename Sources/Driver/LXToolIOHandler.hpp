@@ -19,7 +19,10 @@ public:
         Float64, Float64, void* bytes, UInt32 bytesCount) override;
     void OnWriteClientOutput(const std::shared_ptr<aspl::Client>&, const std::shared_ptr<aspl::Stream>&,
         Float64, Float64, const Float32* frames, UInt32 frameCount, UInt32 channelCount) override;
+    void OnWriteMixedOutput(const std::shared_ptr<aspl::Stream>&, Float64, Float64,
+        const void* bytes, UInt32 bytesCount) override;
 private:
+    void writeOutput(const Float32* frames, UInt32 frameCount, UInt32 channelCount) noexcept;
     std::atomic<SharedAudioBlock*> bridge_;
 };
 

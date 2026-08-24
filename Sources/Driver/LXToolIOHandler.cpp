@@ -36,6 +36,19 @@ void LXToolIOHandler::OnReadClientInput(const std::shared_ptr<aspl::Client>&,
 void LXToolIOHandler::OnWriteClientOutput(const std::shared_ptr<aspl::Client>&,
     const std::shared_ptr<aspl::Stream>&, Float64, Float64, const Float32* frames,
     UInt32 frameCount, UInt32 channelCount) {
+    writeOutput(frames, frameCount, channelCount);
+}
+
+void LXToolIOHandler::OnWriteMixedOutput(const std::shared_ptr<aspl::Stream>&,
+    Float64, Float64, const void* bytes, UInt32 bytesCount) {
+    constexpr UInt32 bytesPerFrame = static_cast<UInt32>(kVirtualChannels * sizeof(Float32));
+    if (!bytes || bytesCount % bytesPerFrame != 0) return;
+    writeOutput(static_cast<const Float32*>(bytes), bytesCount / bytesPerFrame,
+        static_cast<UInt32>(kVirtualChannels));
+}
+
+void LXToolIOHandler::writeOutput(const Float32* frames, UInt32 frameCount,
+    UInt32 channelCount) noexcept {
     auto* bridge = bridge_.load(std::memory_order_acquire);
     if (!frames || !bridge || !bridge->engineRunning.load(std::memory_order_acquire)
         || channelCount != kVirtualChannels || frameCount > 4096) return;
