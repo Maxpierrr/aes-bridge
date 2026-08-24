@@ -17,7 +17,15 @@ $arguments = @(
     "--no-ptp"
 )
 
-$backend = Start-Process -FilePath $Engine -ArgumentList $arguments -PassThru -NoNewWindow
+$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+$startInfo.FileName = $Engine
+$startInfo.Arguments = $arguments -join " "
+$startInfo.UseShellExecute = $false
+$backend = New-Object System.Diagnostics.Process
+$backend.StartInfo = $startInfo
+if (!$backend.Start()) {
+    throw "Windows backend process could not be started."
+}
 try {
     $status = $null
     for ($attempt = 0; $attempt -lt 30 -and $null -eq $status; $attempt++) {
