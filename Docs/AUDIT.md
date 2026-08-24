@@ -105,6 +105,13 @@ The portable protocol layer is also compiled by a Windows CI job. Its Winsock
 and named-shared-memory backend is preparation only: no Windows virtual audio
 endpoint or driver is claimed yet.
 
+The macOS test suite loads the built `.driver` binary, calls its Core Audio
+factory with a minimal host interface, discovers its device and both streams,
+and verifies the fixed identity, 48 kHz nominal rate and 64-channel float32
+input/output formats. This catches bundle/property inconsistencies without an
+administrator install. It does not replace validation through `coreaudiod`,
+Audio MIDI Setup and real Core Audio clients after installation.
+
 The macOS manager and HAL bundle are ad-hoc signed development artifacts.
 Command Line Tools are sufficient to compile them. A public build that opens
 without Gatekeeper warnings requires an Apple Developer ID certificate and

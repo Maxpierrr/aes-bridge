@@ -26,7 +26,8 @@ LXToolDevice::LXToolDevice(std::shared_ptr<aspl::Context> context)
     : aspl::Device(context, aspl::DeviceParameters{
         .Name = "AES Bridge", .Manufacturer = "maxpierr",
         .DeviceUID = "org.maxpierr.aesbridge.device", .ModelUID = "org.maxpierr.aesbridge.model",
-        .CanBeDefault = true, .CanBeDefaultForSystemSounds = false}) {}
+        .CanBeDefault = true, .CanBeDefaultForSystemSounds = false,
+        .SampleRate = kSampleRate, .ChannelCount = kVirtualChannels}) {}
 
 void LXToolDevice::initialize() {
     if (sharedMemory_.open(false)) bridge_ = sharedMemory_.get();

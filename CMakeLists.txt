@@ -89,6 +89,12 @@ if(APPLE AND AESBRIDGE_BUILD_DRIVER)
             MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         )
+        if(AESBRIDGE_BUILD_TESTS)
+            add_executable(AESBridgeDriverSmoke Tests/DriverSmokeTest.cpp)
+            target_include_directories(AESBridgeDriverSmoke PRIVATE Sources)
+            target_link_libraries(AESBridgeDriverSmoke PRIVATE "-framework CoreAudio" "-framework CoreFoundation")
+            aesbridge_strict_warnings(AESBridgeDriverSmoke)
+        endif()
     else()
         message(WARNING "libASPL not found: the protocol engine and tests will build, but not the Core Audio driver")
     endif()
@@ -116,6 +122,10 @@ endif()
 
 if(AESBRIDGE_BUILD_TESTS)
     enable_testing()
+    if(TARGET AESBridgeDriverSmoke)
+        add_test(NAME AESBridgeDriverHAL
+            COMMAND AESBridgeDriverSmoke "$<TARGET_FILE:AESBridgeDriver>")
+    endif()
     add_executable(AESBridgeProtocolTests Tests/ProtocolTests.cpp)
     target_link_libraries(AESBridgeProtocolTests PRIVATE AESBridgeProtocol)
     aesbridge_strict_warnings(AESBridgeProtocolTests)
