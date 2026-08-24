@@ -59,6 +59,7 @@ private:
         std::atomic<bool> jitterResetRequested{false};
         bool rxActive{false};
         bool txActive{false};
+        bool txEpochJoined{false};
         std::thread receiveThread;
         std::thread consumeThread;
         std::thread transmitThread;
@@ -75,6 +76,8 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<std::size_t> activeReceivers_{0};
     std::atomic<std::size_t> activeTransmitters_{0};
+    std::atomic<std::size_t> transmitReadyCount_{0};
+    std::atomic<bool> transmitEpochReady_{false};
     std::chrono::steady_clock::time_point consumeEpoch_{};
     std::chrono::steady_clock::time_point transmitEpoch_{};
     std::int64_t transmitSystemEpochNanoseconds_{0};

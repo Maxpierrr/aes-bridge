@@ -215,9 +215,9 @@ void testLiveEngineLoopbackAndChannelOrder() {
         CHECK(block->coreAudioToNetwork[ch].write(channel) == channel.size());
     }
 
-    std::this_thread::sleep_for(120ms);
-    CHECK(block->statistics.txPackets.load() >= config.streamCount * 80);
-    CHECK(block->statistics.rxPackets.load() >= config.streamCount * 80);
+    std::this_thread::sleep_for(200ms);
+    CHECK(block->statistics.txPackets.load() >= config.streamCount * 100);
+    CHECK(block->statistics.rxPackets.load() >= config.streamCount * 100);
 
     std::array<float, 7000> returned{};
     for (std::size_t ch = 0; ch < lxtool::aes67::kVirtualChannels; ++ch) {

@@ -93,11 +93,10 @@ bool LiveEngine::start() {
     block->activeStreamCount.store(static_cast<std::uint32_t>(config_.streamCount), std::memory_order_release);
     activeReceivers_.store(0);
     activeTransmitters_.store(0);
+    transmitReadyCount_.store(0);
+    transmitEpochReady_.store(false);
     const auto steadyNow = std::chrono::steady_clock::now();
     consumeEpoch_ = steadyNow + 20ms;
-    transmitEpoch_ = steadyNow + 20ms;
-    transmitSystemEpochNanoseconds_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count() + 20'000'000LL;
     streams_.reserve(config_.streamCount);
     try {
         for (std::size_t bank = 0; bank < config_.streamCount; ++bank) {
@@ -275,6 +274,17 @@ void LiveEngine::transmitLoop(std::size_t bank, StreamRuntime& runtime) {
             setTxActive(runtime, false); block->statistics.reconnects.fetch_add(1); std::this_thread::sleep_for(reconnect.nextDelay()); continue;
         }
         reconnect.connected(); setTxActive(runtime, true);
+        if (!runtime.txEpochJoined) {
+            runtime.txEpochJoined = true;
+            if (transmitReadyCount_.fetch_add(1, std::memory_order_acq_rel) + 1 == config_.streamCount) {
+                transmitEpoch_ = std::chrono::steady_clock::now() + 50ms;
+                transmitSystemEpochNanoseconds_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count() + 50'000'000LL;
+                transmitEpochReady_.store(true, std::memory_order_release);
+            }
+        }
+        while (running_ && !transmitEpochReady_.load(std::memory_order_acquire)) std::this_thread::sleep_for(1ms);
+        if (!running_) break;
         auto next = nextDeadline();
         while (running_) {
             std::this_thread::sleep_until(next);
