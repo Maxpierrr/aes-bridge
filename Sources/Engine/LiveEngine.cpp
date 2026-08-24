@@ -4,6 +4,7 @@
 #include "Core/JitterBuffer.hpp"
 #include "Core/IPv4Address.hpp"
 #include "Core/L24Codec.hpp"
+#include "Core/NetworkInterfaces.hpp"
 #include "Core/RTPPacket.hpp"
 #include "Core/ReconnectPolicy.hpp"
 #include "Core/SAP.hpp"
@@ -16,10 +17,6 @@
 #include <array>
 #include <chrono>
 #include <cstring>
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <thread>
 #include <utility>
 
@@ -64,17 +61,7 @@ LiveEngine::LiveEngine(LiveEngineConfig config) : config_(std::move(config)) {}
 LiveEngine::~LiveEngine() { stop(); }
 
 std::string LiveEngine::interfaceIPv4(const std::string& name) {
-    ifaddrs* head = nullptr;
-    if (getifaddrs(&head) != 0) return {};
-    std::string result;
-    for (auto* item = head; item && result.empty(); item = item->ifa_next) {
-        if (!item->ifa_addr || item->ifa_addr->sa_family != AF_INET || name != item->ifa_name) continue;
-        char address[INET_ADDRSTRLEN]{};
-        const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(item->ifa_addr);
-        if (inet_ntop(AF_INET, &ipv4->sin_addr, address, sizeof(address))) result = address;
-    }
-    freeifaddrs(head);
-    return result;
+    return ipv4AddressForInterface(name);
 }
 
 bool LiveEngine::start() {

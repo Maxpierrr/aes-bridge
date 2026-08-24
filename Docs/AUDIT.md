@@ -101,9 +101,11 @@ grandmaster and software timestamps. BMCA with multiple grandmasters, hardware
 timestamping, clock-frequency servo behaviour and real switch interoperability
 remain hardware validation gates.
 
-The portable protocol layer is also compiled by a Windows CI job. Its Winsock
-and named-shared-memory backend is preparation only: no Windows virtual audio
-endpoint or driver is claimed yet.
+The portable protocol and live network engine are also compiled by a Windows
+CI job. The Winsock and named-shared-memory backend executes the same 64-channel
+loopback, SAP, reconnect and simulated PTP tests plus a two-process status and
+lifecycle test. It remains preparation only: no Windows virtual audio endpoint
+or driver is claimed yet.
 
 The macOS test suite loads the built `.driver` binary, calls its Core Audio
 factory with a minimal host interface, discovers its device and both streams,

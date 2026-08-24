@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "Core/Constants.hpp"
+#include "Core/NetworkInterfaces.hpp"
 #include "Core/SDP.hpp"
 #include "Core/SessionDirectory.hpp"
 #include "Core/SharedAudioMemory.hpp"
 #include "Engine/LiveEngine.hpp"
 
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -28,15 +25,9 @@ void requestStop(int) {
 }
 
 void listInterfaces() {
-    ifaddrs* head = nullptr;
-    if (getifaddrs(&head) != 0) return;
-    for (auto* item = head; item; item = item->ifa_next) {
-        if (!item->ifa_addr || item->ifa_addr->sa_family != AF_INET || (item->ifa_flags & IFF_LOOPBACK) != 0) continue;
-        char address[INET_ADDRSTRLEN]{};
-        const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(item->ifa_addr);
-        if (inet_ntop(AF_INET, &ipv4->sin_addr, address, sizeof(address))) std::cout << item->ifa_name << "\t" << address << "\n";
+    for (const auto& interface : lxtool::aes67::listIPv4NetworkInterfaces()) {
+        if (!interface.loopback) std::cout << interface.name << '\t' << interface.address << '\n';
     }
-    freeifaddrs(head);
 }
 
 std::optional<std::string> valueAfter(int argc, char** argv, const std::string& option) {

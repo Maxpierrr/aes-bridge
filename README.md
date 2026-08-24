@@ -4,8 +4,9 @@ GPLv3 AES67 bridge and experimental 64-input/64-output virtual Core Audio
 device. Network transport is deliberately split into eight banks of eight
 channels, each using L24, 48 kHz and 48 frames per packet (1 ms). The
 LXToolPi/RASPIAUDIO profile activates bank 1 only; computer-to-computer profiles
-activate all eight. A portable Windows protocol/Winsock backend shares the same
-64-channel memory contract for a future virtual Windows audio endpoint.
+activate all eight. The Windows backend now runs the same RTP/SAP/PTP engine
+against a named 64-channel memory contract for a future virtual Windows audio
+endpoint.
 
 > Not production-ready. The protocol core and local UDP loopback are tested.
 > RTP RX/TX passes an automated 64-channel/eight-stream UDP loopback test. The Core Audio
@@ -33,7 +34,7 @@ activate all eight. A portable Windows protocol/Winsock backend shares the same
 | Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |
 | SwiftUI manager and engine controls | Async status polling, validated parameters, termination-aware restart and CLI lifecycle test; app compiles/signs ad hoc |
-| Windows protocol/Winsock/shared-memory backend | Implemented; Windows CI is the validation gate |
+| Windows network/shared-memory backend | Common live RX/TX/SAP/PTP engine plus 64-channel named mapping; full loopback and CLI lifecycle run in Windows CI |
 | PTPv2 E2E client/domain 0 | Codec, four-timestamp offset/delay, lock timeout and PTP-derived RTP timestamps implemented; simulated GM passes |
 | Raspberry Pi validation | Pending |
 

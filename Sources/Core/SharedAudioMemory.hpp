@@ -100,7 +100,11 @@ public:
     [[nodiscard]] int lastError() const noexcept { return lastError_; }
     static bool remove() noexcept;
 private:
+#if defined(_WIN32)
+    void* mapping_{nullptr};
+#else
     int descriptor_{-1};
+#endif
     SharedAudioBlock* block_{nullptr};
     int lastError_{0};
 };

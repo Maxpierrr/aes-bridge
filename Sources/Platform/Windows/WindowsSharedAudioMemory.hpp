@@ -6,21 +6,6 @@
 namespace lxtool::aes67 {
 
 inline constexpr wchar_t kWindowsSharedAudioName[] = L"Local\\AESBridge.Audio.v3";
-
-class WindowsSharedAudioMemory final {
-public:
-    WindowsSharedAudioMemory() = default;
-    ~WindowsSharedAudioMemory();
-    WindowsSharedAudioMemory(const WindowsSharedAudioMemory&) = delete;
-    WindowsSharedAudioMemory& operator=(const WindowsSharedAudioMemory&) = delete;
-    bool open(bool createOwner) noexcept;
-    void close() noexcept;
-    [[nodiscard]] SharedAudioBlock* get() const noexcept { return block_; }
-    [[nodiscard]] unsigned long lastError() const noexcept { return lastError_; }
-private:
-    void* mapping_{nullptr};
-    SharedAudioBlock* block_{nullptr};
-    unsigned long lastError_{0};
-};
+using WindowsSharedAudioMemory = SharedAudioMemory;
 
 } // namespace lxtool::aes67

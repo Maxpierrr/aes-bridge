@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(AESBRIDGE_BUILD_DRIVER "Build the libASPL AudioServerPlugIn" ON)
 option(AESBRIDGE_BUILD_MANAGER "Build the SwiftUI manager" ON)
 option(AESBRIDGE_BUILD_TESTS "Build automated tests" ON)
-option(AESBRIDGE_BUILD_WINDOWS_BACKEND "Build the Windows network backend scaffold" ON)
+option(AESBRIDGE_BUILD_WINDOWS_BACKEND "Build the Windows network backend" ON)
 
 function(aesbridge_strict_warnings target)
     if(MSVC)
@@ -32,29 +32,43 @@ aesbridge_strict_warnings(AESBridgeProtocol)
 
 if(WIN32)
     add_library(AESBridgeNetworking STATIC Sources/Platform/Windows/UDPSocketWindows.cpp)
-    target_link_libraries(AESBridgeNetworking PUBLIC ws2_32)
+    target_link_libraries(AESBridgeNetworking PUBLIC ws2_32 iphlpapi)
 else()
     add_library(AESBridgeNetworking STATIC Sources/Core/UDPSocket.cpp)
 endif()
 target_include_directories(AESBridgeNetworking PUBLIC Sources)
 aesbridge_strict_warnings(AESBridgeNetworking)
 
-if(UNIX)
+if(WIN32)
+    set(AESBRIDGE_SHARED_AUDIO_SOURCE Sources/Platform/Windows/WindowsSharedAudioMemory.cpp)
+    set(AESBRIDGE_NETWORK_INTERFACES_SOURCE Sources/Platform/Windows/NetworkInterfacesWindows.cpp)
+else()
+    set(AESBRIDGE_SHARED_AUDIO_SOURCE Sources/Core/SharedAudioMemory.cpp)
+    set(AESBRIDGE_NETWORK_INTERFACES_SOURCE Sources/Core/NetworkInterfacesUnix.cpp)
+endif()
+
 add_library(AESBridgeCore STATIC
     Sources/Core/SessionDirectory.cpp
-    Sources/Core/SharedAudioMemory.cpp
+    ${AESBRIDGE_SHARED_AUDIO_SOURCE}
+    ${AESBRIDGE_NETWORK_INTERFACES_SOURCE}
 )
 target_include_directories(AESBridgeCore PUBLIC Sources)
 target_link_libraries(AESBridgeCore PUBLIC AESBridgeProtocol AESBridgeNetworking)
 aesbridge_strict_warnings(AESBridgeCore)
 
-add_executable(aes-bridge-engine
-    Sources/Engine/EngineMain.cpp
+set(AESBRIDGE_ENGINE_SOURCES
     Sources/Engine/LiveEngine.cpp
     Sources/Engine/PTPClient.cpp
 )
-target_link_libraries(aes-bridge-engine PRIVATE AESBridgeCore)
-aesbridge_strict_warnings(aes-bridge-engine)
+
+if(UNIX)
+    add_executable(aes-bridge-engine
+        Sources/Engine/EngineMain.cpp
+        ${AESBRIDGE_ENGINE_SOURCES}
+    )
+    target_link_libraries(aes-bridge-engine PRIVATE AESBridgeCore)
+    aesbridge_strict_warnings(aes-bridge-engine)
+endif()
 
 if(APPLE AND AESBRIDGE_BUILD_DRIVER)
     find_path(ASPL_INCLUDE_DIR aspl/Plugin.hpp PATHS /opt/homebrew/include /usr/local/include)
@@ -114,15 +128,19 @@ if(APPLE AND AESBRIDGE_BUILD_MANAGER)
     add_dependencies(AESBridgeManager aes-bridge-engine)
 endif()
 
-endif() # UNIX
-
 if(WIN32 AND AESBRIDGE_BUILD_WINDOWS_BACKEND)
     add_executable(aes-bridge-windows-backend
-        Sources/Platform/Windows/WindowsBackendMain.cpp
-        Sources/Platform/Windows/WindowsSharedAudioMemory.cpp
+        Sources/Engine/EngineMain.cpp
+        ${AESBRIDGE_ENGINE_SOURCES}
     )
-    target_link_libraries(aes-bridge-windows-backend PRIVATE AESBridgeProtocol AESBridgeNetworking)
+    target_link_libraries(aes-bridge-windows-backend PRIVATE AESBridgeCore)
     aesbridge_strict_warnings(aes-bridge-windows-backend)
+
+    add_executable(AESBridgeWindowsBackendSelfTest
+        Sources/Platform/Windows/WindowsBackendMain.cpp
+    )
+    target_link_libraries(AESBridgeWindowsBackendSelfTest PRIVATE AESBridgeCore)
+    aesbridge_strict_warnings(AESBridgeWindowsBackendSelfTest)
 endif()
 
 if(AESBRIDGE_BUILD_TESTS)
@@ -135,20 +153,24 @@ if(AESBRIDGE_BUILD_TESTS)
     target_link_libraries(AESBridgeProtocolTests PRIVATE AESBridgeProtocol)
     aesbridge_strict_warnings(AESBridgeProtocolTests)
     add_test(NAME AESBridgeProtocol COMMAND AESBridgeProtocolTests)
-if(UNIX)
     add_executable(AESBridgeTests Tests/CoreTests.cpp)
-    target_sources(AESBridgeTests PRIVATE Sources/Engine/LiveEngine.cpp Sources/Engine/PTPClient.cpp)
+    target_sources(AESBridgeTests PRIVATE ${AESBRIDGE_ENGINE_SOURCES})
     target_link_libraries(AESBridgeTests PRIVATE AESBridgeCore)
     aesbridge_strict_warnings(AESBridgeTests)
     add_test(NAME AESBridgeCore COMMAND AESBridgeTests)
-    add_test(NAME AESBridgeEngineCLI
-        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/Tests/EngineCLISmoke.sh" "$<TARGET_FILE:aes-bridge-engine>")
-    set_tests_properties(AESBridgeCore AESBridgeEngineCLI PROPERTIES RUN_SERIAL TRUE)
-    if(TARGET AESBridgeDriverSmoke)
-        set_tests_properties(AESBridgeDriverHAL PROPERTIES RUN_SERIAL TRUE)
+    if(UNIX)
+        add_test(NAME AESBridgeEngineCLI
+            COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/Tests/EngineCLISmoke.sh" "$<TARGET_FILE:aes-bridge-engine>")
+        set_tests_properties(AESBridgeCore AESBridgeEngineCLI PROPERTIES RUN_SERIAL TRUE)
+        if(TARGET AESBridgeDriverSmoke)
+            set_tests_properties(AESBridgeDriverHAL PROPERTIES RUN_SERIAL TRUE)
+        endif()
     endif()
-endif()
-if(WIN32 AND AESBRIDGE_BUILD_WINDOWS_BACKEND)
-    add_test(NAME AESBridgeWindowsBackend COMMAND aes-bridge-windows-backend --self-test)
-endif()
+    if(WIN32 AND AESBRIDGE_BUILD_WINDOWS_BACKEND)
+        add_test(NAME AESBridgeWindowsBackend COMMAND AESBridgeWindowsBackendSelfTest --self-test)
+        add_test(NAME AESBridgeWindowsEngineCLI COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/Tests/WindowsEngineCLISmoke.ps1"
+            -Engine "$<TARGET_FILE:aes-bridge-windows-backend>")
+        set_tests_properties(AESBridgeCore AESBridgeWindowsBackend AESBridgeWindowsEngineCLI PROPERTIES RUN_SERIAL TRUE)
+    endif()
 endif()
