@@ -14,7 +14,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Build SwiftUI manager
-        run: scripts/build-manager.sh "$PWD/build/aes-bridge-engine"
+        run: /bin/zsh scripts/build-manager.sh "$PWD/build/aes-bridge-engine"
       - name: Test
         run: ctest --test-dir build --output-on-failure
   windows:

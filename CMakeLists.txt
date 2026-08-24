@@ -107,7 +107,7 @@ endif()
 
 if(APPLE AND AESBRIDGE_BUILD_MANAGER)
     add_custom_target(AESBridgeManager
-        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-manager.sh" "$<TARGET_FILE:aes-bridge-engine>"
+        COMMAND /bin/zsh "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-manager.sh" "$<TARGET_FILE:aes-bridge-engine>"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "Building AES Bridge Manager"
     )
