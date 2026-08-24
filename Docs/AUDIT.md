@@ -150,3 +150,8 @@ attributes, ad-hoc signs and verifies them before replacing an older AES Bridge
 bundle. It refuses to run while the manager or engine is active. Uninstallation
 checks the expected bundle identifiers before deleting only the documented
 driver, application and shared-memory paths.
+
+The post-install verifier does not infer success from copied files. It checks
+the exact installed bundle identifiers, strict signatures and quarantine state,
+executes the embedded engine, and queries Core Audio through its public API for
+the AES Bridge UID, fixed 48 kHz rate and exact 64-input/64-output formats.

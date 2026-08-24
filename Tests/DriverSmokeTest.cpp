@@ -186,8 +186,17 @@ int main(int argc, char** argv) {
     const bool hasUid = driver.text(device, kAudioDevicePropertyDeviceUID, uid);
     const bool hasRate = driver.pod(device, kAudioDevicePropertyNominalSampleRate,
         kAudioObjectPropertyScopeGlobal, rate);
+    std::vector<std::uint8_t> availableRateBytes;
+    const bool hasAvailableRate = driver.data(device, kAudioDevicePropertyAvailableNominalSampleRates,
+        kAudioObjectPropertyScopeGlobal, availableRateBytes)
+        && availableRateBytes.size() == sizeof(AudioValueRange);
+    AudioValueRange availableRate{};
+    if (hasAvailableRate) std::memcpy(&availableRate, availableRateBytes.data(), sizeof(availableRate));
     if (!hasName || name != "AES Bridge" || !hasUid || uid != "org.maxpierr.aesbridge.device"
-        || !hasRate || std::abs(rate - static_cast<Float64>(kSampleRate)) >= 0.5) {
+        || !hasRate || std::abs(rate - static_cast<Float64>(kSampleRate)) >= 0.5
+        || !hasAvailableRate
+        || std::abs(availableRate.mMinimum - static_cast<Float64>(kSampleRate)) >= 0.5
+        || std::abs(availableRate.mMaximum - static_cast<Float64>(kSampleRate)) >= 0.5) {
         std::cerr << "identité ou fréquence du périphérique invalide: name="
                   << (hasName ? name : "<absent>") << ", uid=" << (hasUid ? uid : "<absent>")
                   << ", rate=" << (hasRate ? std::to_string(rate) : "<absente>") << '\n';

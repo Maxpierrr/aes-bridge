@@ -134,6 +134,13 @@ if(APPLE AND AESBRIDGE_BUILD_MANAGER)
     add_dependencies(AESBridgeManager aes-bridge-engine)
 endif()
 
+if(APPLE)
+    add_executable(AESBridgeCoreAudioCheck Sources/Tools/CoreAudioCheck.cpp)
+    target_include_directories(AESBridgeCoreAudioCheck PRIVATE Sources)
+    target_link_libraries(AESBridgeCoreAudioCheck PRIVATE "-framework CoreAudio" "-framework CoreFoundation")
+    aesbridge_strict_warnings(AESBridgeCoreAudioCheck)
+endif()
+
 if(WIN32 AND AESBRIDGE_BUILD_WINDOWS_BACKEND)
     add_executable(aes-bridge-windows-backend
         Sources/Engine/EngineMain.cpp

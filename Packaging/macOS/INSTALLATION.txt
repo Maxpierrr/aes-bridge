@@ -16,6 +16,11 @@ Restart macOS. AES Bridge should then appear in Audio MIDI Setup with 64 inputs,
 64 outputs and a fixed 48 kHz sample rate. Keep the AES Bridge manager open while
 using the network engine.
 
+After restarting, verify the installed bundle signatures and query Core Audio
+directly:
+
+  ./Installer/verify-installed.sh ./build
+
 To uninstall from this extracted directory:
 
   sudo ./Installer/uninstall.sh

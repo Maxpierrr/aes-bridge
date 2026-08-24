@@ -159,6 +159,16 @@ Then perform the development install:
 sudo ./Installer/install-dev.sh /private/tmp/aes-bridge-build "/private/tmp/aes-bridge-dist/AES Bridge.app"
 ```
 
+After restarting macOS, perform the authoritative installed-device check:
+
+```sh
+./Installer/verify-installed.sh /private/tmp/aes-bridge-build
+```
+
+It verifies the exact bundle IDs, signatures and quarantine state, executes the
+embedded engine, then queries Core Audio for the `AES Bridge` UID, 64 input
+channels, 64 output channels and fixed 48 kHz rate.
+
 It uses `/Library/Audio/Plug-Ins/HAL/AESBridge.driver`, the Apple-documented
 HAL location. It does not disable SIP, request Reduced Security, or install a
 kernel extension. Both bundles are copied to hidden staging directories,
