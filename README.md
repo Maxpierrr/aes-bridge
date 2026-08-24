@@ -32,7 +32,7 @@ activate all eight. A portable Windows protocol/Winsock backend shares the same
 | SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
 | Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |
-| SwiftUI manager and engine controls | Compiles and signs ad hoc with the installed Command Line Tools |
+| SwiftUI manager and engine controls | Async status polling, validated parameters, termination-aware restart and CLI lifecycle test; app compiles/signs ad hoc |
 | Windows protocol/Winsock/shared-memory backend | Implemented; Windows CI is the validation gate |
 | PTPv2 E2E client/domain 0 | Codec, four-timestamp offset/delay, lock timeout and PTP-derived RTP timestamps implemented; simulated GM passes |
 | Raspberry Pi validation | Pending |
@@ -110,6 +110,14 @@ Network tests may need to run outside a restricted sandbox:
 The manager currently builds with the installed Command Line Tools. Full Xcode
 will still be needed later for Developer ID signing, notarization and a proper
 installer package, but not for the present ad-hoc development build.
+
+The manager never waits for the status subprocess on the UI thread. Restart
+waits for the previous engine process to terminate instead of relying on a
+fixed delay, and closing its window terminates the child engine. The automated
+CLI lifecycle test covers start, JSON status and SIGTERM shutdown; the macOS CI
+also compiles and signs the complete SwiftUI application. No network interface
+is selected automatically: the user must explicitly choose the wired Ethernet
+port before the engine can start.
 
 The workspace is on SMB. macOS code signing interprets SMB metadata as a
 resource fork. Stage release bundles on local APFS (the installer strips

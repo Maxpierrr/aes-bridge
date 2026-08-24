@@ -13,6 +13,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAESBRIDGE_BUILD_MANAGER=OFF
       - name: Build
         run: cmake --build build --parallel
+      - name: Build SwiftUI manager
+        run: scripts/build-manager.sh "$PWD/build/aes-bridge-engine"
       - name: Test
         run: ctest --test-dir build --output-on-failure
   windows:

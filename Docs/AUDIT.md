@@ -122,3 +122,9 @@ The macOS manager and HAL bundle are ad-hoc signed development artifacts.
 Command Line Tools are sufficient to compile them. A public build that opens
 without Gatekeeper warnings requires an Apple Developer ID certificate and
 notarization; full Xcode will be required for that release step.
+
+Manager status polling runs outside the main actor and suppresses overlapping
+polls. Numeric and IPv4 multicast parameters are checked before launch,
+restart waits for actual process termination, stderr is surfaced on failure,
+and the child engine is terminated when the manager view closes. A separate
+CLI smoke test verifies the same start/status/SIGTERM contract used by SwiftUI.

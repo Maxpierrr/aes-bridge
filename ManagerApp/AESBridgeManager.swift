@@ -10,7 +10,7 @@ struct NetworkInterface: Identifiable, Hashable {
     var id: String { name }
 }
 
-struct DiscoveredSession: Identifiable, Hashable {
+struct DiscoveredSession: Identifiable, Hashable, Decodable, Sendable {
     let id: String
     let name: String
     let originAddress: String
@@ -19,6 +19,26 @@ struct DiscoveredSession: Identifiable, Hashable {
     let port: Int
     let payloadType: Int
     let ptpDomain: Int
+}
+
+private struct EngineStatusSnapshot: Decodable, Sendable {
+    let engineRunning: Bool
+    let rxPackets: UInt64
+    let txPackets: UInt64
+    let lostPackets: UInt64
+    let malformedPackets: UInt64
+    let sapMalformedPackets: UInt64
+    let reconnects: UInt64
+    let inputUnderruns: UInt64
+    let outputUnderruns: UInt64
+    let ringOverruns: UInt64
+    let ptpErrors: UInt64
+    let ptpOffsetNanoseconds: Int64
+    let ptpMeanPathDelayNanoseconds: Int64
+    let rxActive: Bool
+    let txActive: Bool
+    let ptpLocked: Bool
+    let sessions: [DiscoveredSession]
 }
 
 @MainActor final class EngineModel: ObservableObject {
@@ -43,9 +63,15 @@ struct DiscoveredSession: Identifiable, Hashable {
     @Published var txPackets: UInt64 = 0
     @Published var losses: UInt64 = 0
     @Published var errors: UInt64 = 0
+    @Published var reconnects: UInt64 = 0
+    @Published var inputUnderruns: UInt64 = 0
+    @Published var outputUnderruns: UInt64 = 0
+    @Published var ringOverruns: UInt64 = 0
     @Published var rxActive = false
     @Published var txActive = false
     private var engineProcess: Process?
+    private var restartRequested = false
+    private var statusRefreshInFlight = false
 
     var streamCount: Int { profile == "raspberry" ? 1 : 8 }
     var channelDescription: String { "\(streamCount * 8) × \(streamCount * 8) actifs · \(streamCount) banque(s) AES67" }
@@ -74,13 +100,32 @@ struct DiscoveredSession: Identifiable, Hashable {
             current = item.pointee.ifa_next
         }
         interfaces = result.sorted { $0.name < $1.name }
-        if selectedInterface.isEmpty { selectedInterface = interfaces.first(where: { $0.name.hasPrefix("en") })?.name ?? interfaces.first?.name ?? "" }
+        if !interfaces.contains(where: { $0.name == selectedInterface }) { selectedInterface = "" }
     }
 
     private func engineURL() -> URL? {
         if let bundled = Bundle.main.url(forResource: "aes-bridge-engine", withExtension: nil) { return bundled }
         let installed = URL(fileURLWithPath: "/usr/local/libexec/aes-bridge-engine")
         return FileManager.default.isExecutableFile(atPath: installed.path) ? installed : nil
+    }
+
+    private func validIPv4(_ value: String, multicast: Bool = false) -> Bool {
+        let octets = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return false }
+        let values = octets.compactMap { Int($0) }
+        guard values.count == 4, values.allSatisfy({ (0...255).contains($0) }) else { return false }
+        return !multicast || (224...239).contains(values[0])
+    }
+
+    private func configurationError() -> String? {
+        if selectedInterface.isEmpty { return "Choisissez une interface Ethernet" }
+        if !validIPv4(rxAddress, multicast: true) { return "Adresse multicast RX invalide" }
+        if !rxSourceAddress.isEmpty && !validIPv4(rxSourceAddress) { return "Adresse source RX invalide" }
+        if !validIPv4(txAddress, multicast: true) { return "Adresse multicast TX invalide" }
+        if !(1...65_535).contains(rxPort) || !(1...65_535).contains(txPort) { return "Port RTP hors plage" }
+        if !(0...127).contains(rxPayloadType) { return "Payload type RX hors plage" }
+        if !(2...63).contains(jitterMilliseconds) { return "Tampon anti-gigue hors plage" }
+        return nil
     }
 
     func applyProfile() {
@@ -100,9 +145,12 @@ struct DiscoveredSession: Identifiable, Hashable {
 
     func start() {
         guard engineProcess?.isRunning != true else { engineState = "En fonctionnement"; return }
-        guard !selectedInterface.isEmpty else { engineState = "Choisissez une interface Ethernet"; return }
+        engineProcess = nil
+        restartRequested = false
+        if let error = configurationError() { engineState = error; return }
         guard let executable = engineURL() else { engineState = "Moteur absent de l’application"; return }
         let process = Process()
+        let errorOutput = Pipe()
         process.executableURL = executable
         process.arguments = ["--run", "--interface", selectedInterface, "--profile", profile,
             "--rx-group", rxAddress, "--rx-source", rxSourceAddress,
@@ -110,9 +158,20 @@ struct DiscoveredSession: Identifiable, Hashable {
             "--tx-group", txAddress, "--tx-port", String(txPort),
             "--jitter-packets", String(jitterMilliseconds)]
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async { self?.engineState = "Arrêté" }
+        process.standardError = errorOutput
+        process.terminationHandler = { [weak self] finished in
+            let detail = String(data: errorOutput.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            DispatchQueue.main.async {
+                guard let self, self.engineProcess === finished else { return }
+                self.engineProcess = nil
+                if self.restartRequested {
+                    self.restartRequested = false
+                    self.start()
+                } else {
+                    self.engineState = detail.isEmpty ? "Arrêté" : "Échec : \(detail)"
+                }
+            }
         }
         do {
             try process.run()
@@ -124,14 +183,17 @@ struct DiscoveredSession: Identifiable, Hashable {
     }
 
     func stop() {
+        restartRequested = false
         guard let process = engineProcess, process.isRunning else { engineState = "Arrêté"; return }
         process.terminate()
         engineState = "Arrêt…"
     }
 
     func restart() {
-        stop()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.start() }
+        guard let process = engineProcess, process.isRunning else { start(); return }
+        restartRequested = true
+        process.terminate()
+        engineState = "Relance…"
     }
 
     func applySelectedSession() {
@@ -152,8 +214,7 @@ struct DiscoveredSession: Identifiable, Hashable {
         return "\(octets[0]).\(octets[1]).\(octets[2]).\(Int(octets[3]) - bank)"
     }
 
-    func refreshStatus() {
-        guard let executable = engineURL() else { return }
+    nonisolated private static func readStatus(executable: URL) -> EngineStatusSnapshot? {
         let process = Process()
         let output = Pipe()
         process.executableURL = executable
@@ -163,39 +224,44 @@ struct DiscoveredSession: Identifiable, Hashable {
         do {
             try process.run()
             process.waitUntilExit()
-            guard process.terminationStatus == 0,
-                  let object = try JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any]
-            else { engineState = engineProcess?.isRunning == true ? "Démarrage…" : "Arrêté"; return }
-            engineState = (object["engineRunning"] as? Bool) == true ? "En fonctionnement" : "Arrêté"
-            ptpState = (object["ptpLocked"] as? Bool) == true ? "Verrouillé" : "Non verrouillé"
-            ptpOffsetNanoseconds = (object["ptpOffsetNanoseconds"] as? NSNumber)?.int64Value ?? 0
-            ptpPathDelayNanoseconds = (object["ptpMeanPathDelayNanoseconds"] as? NSNumber)?.int64Value ?? 0
-            ptpErrors = (object["ptpErrors"] as? NSNumber)?.uint64Value ?? 0
-            rxPackets = (object["rxPackets"] as? NSNumber)?.uint64Value ?? 0
-            txPackets = (object["txPackets"] as? NSNumber)?.uint64Value ?? 0
-            losses = (object["lostPackets"] as? NSNumber)?.uint64Value ?? 0
-            errors = ((object["malformedPackets"] as? NSNumber)?.uint64Value ?? 0)
-                + ((object["sapMalformedPackets"] as? NSNumber)?.uint64Value ?? 0)
-            rxActive = (object["rxActive"] as? Bool) == true
-            txActive = (object["txActive"] as? Bool) == true
-            if let sessions = object["sessions"] as? [[String: Any]] {
-                discoveredSessions = sessions.compactMap { value in
-                    guard let id = value["id"] as? String,
-                          let name = value["name"] as? String,
-                          let origin = value["originAddress"] as? String,
-                          let source = value["sourceAddress"] as? String,
-                          let multicast = value["multicastAddress"] as? String,
-                          let port = (value["port"] as? NSNumber)?.intValue,
-                          let payloadType = (value["payloadType"] as? NSNumber)?.intValue,
-                          let ptpDomain = (value["ptpDomain"] as? NSNumber)?.intValue
-                    else { return nil }
-                    return DiscoveredSession(id: id, name: name, originAddress: origin,
-                        sourceAddress: source, multicastAddress: multicast, port: port,
-                        payloadType: payloadType, ptpDomain: ptpDomain)
-                }
-            }
-        } catch {
+            guard process.terminationStatus == 0 else { return nil }
+            return try JSONDecoder().decode(EngineStatusSnapshot.self,
+                from: output.fileHandleForReading.readDataToEndOfFile())
+        } catch { return nil }
+    }
+
+    private func applyStatus(_ status: EngineStatusSnapshot?) {
+        statusRefreshInFlight = false
+        guard let status else {
             engineState = engineProcess?.isRunning == true ? "Démarrage…" : "Arrêté"
+            rxActive = false
+            txActive = false
+            return
+        }
+        engineState = status.engineRunning ? "En fonctionnement" : "Arrêté"
+        ptpState = status.ptpLocked ? "Verrouillé" : "Non verrouillé"
+        ptpOffsetNanoseconds = status.ptpOffsetNanoseconds
+        ptpPathDelayNanoseconds = status.ptpMeanPathDelayNanoseconds
+        ptpErrors = status.ptpErrors
+        rxPackets = status.rxPackets
+        txPackets = status.txPackets
+        losses = status.lostPackets
+        errors = status.malformedPackets + status.sapMalformedPackets
+        reconnects = status.reconnects
+        inputUnderruns = status.inputUnderruns
+        outputUnderruns = status.outputUnderruns
+        ringOverruns = status.ringOverruns
+        rxActive = status.rxActive
+        txActive = status.txActive
+        discoveredSessions = status.sessions
+    }
+
+    func refreshStatus() {
+        guard !statusRefreshInFlight, let executable = engineURL() else { return }
+        statusRefreshInFlight = true
+        Task.detached(priority: .utility) {
+            let status = EngineModel.readStatus(executable: executable)
+            await MainActor.run { [weak self] in self?.applyStatus(status) }
         }
     }
 }
@@ -237,9 +303,12 @@ struct ContentView: View {
                         Text("Ordinateur B · 64×64").tag("computer-b")
                     }.onChange(of: model.profile) { _ in model.applyProfile() }
                     LabeledContent("Canaux", value: model.channelDescription)
-                    Picker("Interface Ethernet", selection: $model.selectedInterface) {
+                    Picker("Interface Ethernet filaire", selection: $model.selectedInterface) {
+                        Text("Choisir…").tag("")
                         ForEach(model.interfaces) { Text("\($0.name) — \($0.address)").tag($0.name) }
                     }
+                    Text("Sélection explicite requise : choisissez le port Ethernet câblé, pas le Wi‑Fi.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Button("Actualiser les interfaces") { model.refreshInterfaces() }
                 }
                 Section("Réception AES67 → Mac") {
@@ -263,6 +332,8 @@ struct ContentView: View {
                     Grid(alignment: .leading) {
                         GridRow { Text("RX"); Text("\(model.rxPackets)"); Text("TX"); Text("\(model.txPackets)") }
                         GridRow { Text("Pertes"); Text("\(model.losses)"); Text("Erreurs"); Text("\(model.errors)") }
+                        GridRow { Text("Reconnexions"); Text("\(model.reconnects)"); Text("Overruns"); Text("\(model.ringOverruns)") }
+                        GridRow { Text("Underruns IN"); Text("\(model.inputUnderruns)"); Text("Underruns OUT"); Text("\(model.outputUnderruns)") }
                         GridRow { Text("Offset PTP"); Text("\(model.ptpOffsetNanoseconds) ns"); Text("Délai PTP"); Text("\(model.ptpPathDelayNanoseconds) ns") }
                         GridRow { Text("Erreurs PTP"); Text("\(model.ptpErrors)"); Text(""); Text("") }
                     }
@@ -273,7 +344,9 @@ struct ContentView: View {
                 Text("Le périphérique virtuel expose 64×64. Le profil Raspberry active uniquement les canaux 1–8 ; les profils ordinateur utilisent huit banques. PTP et stabilité longue durée restent à valider sur matériel réel.")
                     .font(.caption).foregroundStyle(.secondary)
             }.formStyle(.grouped).padding().navigationTitle("Configuration 64×64")
-        }.frame(minWidth: 880, minHeight: 610).onReceive(statusTimer) { _ in model.refreshStatus() }
+        }.frame(minWidth: 880, minHeight: 650)
+            .onReceive(statusTimer) { _ in model.refreshStatus() }
+            .onDisappear { model.stop() }
     }
 }
 
