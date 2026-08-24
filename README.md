@@ -105,6 +105,17 @@ the provenance metadata added by the SMB workspace. It is ad-hoc signed for
 local testing only. Public distribution without a Gatekeeper warning requires
 an Apple Developer ID signature and notarization.
 
+Create the same checksum-protected development archive produced by CI:
+
+```sh
+scripts/package-macos.sh /private/tmp/aes-bridge-build \
+  "/private/tmp/aes-bridge-dist/AES Bridge.app" artifacts
+```
+
+Every successful GitHub Actions run uploads a 14-day macOS development archive
+and a statically linked Windows x64 backend archive. Each artifact contains its
+own `.sha256` file. These are test builds, not notarized production releases.
+
 Network tests may need to run outside a restricted sandbox:
 
 ```sh

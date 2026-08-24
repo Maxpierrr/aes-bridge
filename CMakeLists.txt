@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
 project(AESBridge VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 option(AESBRIDGE_BUILD_DRIVER "Build the libASPL AudioServerPlugIn" ON)
 option(AESBRIDGE_BUILD_MANAGER "Build the SwiftUI manager" ON)

@@ -38,6 +38,17 @@ build\Release\aes-bridge-windows-backend.exe --list-interfaces
 build\Release\aes-bridge-windows-backend.exe --run --interface "Ethernet" --profile computer-b
 ```
 
+Create the same standalone x64 archive produced by CI:
+
+```powershell
+./scripts/package-windows.ps1 -BuildDir ./build/Release -OutputDir ./artifacts
+```
+
+Release builds use the static Microsoft C/C++ runtime, so the backend archive
+does not depend on a separately installed Visual C++ Redistributable. Successful
+CI runs retain this archive and its SHA-256 file as downloadable artifacts for
+14 days.
+
 The backend command line intentionally matches the macOS engine. `computer-a`
 receives `.80`–`.87` and transmits `.96`–`.103`; `computer-b` reverses those
 groups. One side must use each profile. The Windows firewall may require an

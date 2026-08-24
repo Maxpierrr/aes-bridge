@@ -19,6 +19,15 @@ jobs:
         run: /bin/zsh Installer/preflight.sh "$PWD/build" "/private/tmp/aes-bridge-dist/AES Bridge.app" --no-runtime
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Package macOS development build
+        run: /bin/zsh scripts/package-macos.sh "$PWD/build" "/private/tmp/aes-bridge-dist/AES Bridge.app" "$PWD/artifacts"
+      - name: Upload macOS development build
+        uses: actions/upload-artifact@v4
+        with:
+          name: AES-Bridge-macOS-development
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
   windows:
     runs-on: windows-2022
     steps:
@@ -29,3 +38,13 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package Windows backend
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -BuildDir "$PWD/build/Release" -OutputDir "$PWD/artifacts"
+      - name: Upload Windows backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: AES-Bridge-Windows-backend-x64
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14

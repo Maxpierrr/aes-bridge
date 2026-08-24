@@ -1,0 +1,25 @@
+AES Bridge macOS development build 0.2.0
+=========================================
+
+This is an ad-hoc signed, non-notarized development build. It is not qualified
+for production use. It does not require disabling SIP or Reduced Security.
+
+Open Terminal in this extracted directory, then run the non-privileged checks:
+
+  ./Installer/preflight.sh ./build "./AES Bridge.app"
+
+If every check passes, install the exact verified bundles:
+
+  sudo ./Installer/install-dev.sh ./build "./AES Bridge.app"
+
+Restart macOS. AES Bridge should then appear in Audio MIDI Setup with 64 inputs,
+64 outputs and a fixed 48 kHz sample rate. Keep the AES Bridge manager open while
+using the network engine.
+
+To uninstall from this extracted directory:
+
+  sudo ./Installer/uninstall.sh
+
+Restart macOS again after uninstalling. Do not bypass Gatekeeper globally. A
+public build without a Gatekeeper warning will require Apple Developer ID
+signing and notarization.
