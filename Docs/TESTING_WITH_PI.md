@@ -67,6 +67,11 @@ Choose one grandmaster. Observe both Pi linuxptp and Mac engine state. Test
 domain mismatch deliberately, then restore domain 0. Record lock acquisition
 time, offset, path delay, drift and unlock/relock after cable interruption.
 
+The manager must show received PTP messages, offset, E2E mean path delay and
+zero protocol errors. First validate with software timestamps, then compare the
+measured values with `pmc` on the Pi. Do not infer hardware-grade lock from the
+passing simulated-grandmaster unit test.
+
 Pass: no false “locked” state, stable offset suitable for the selected latency,
 and automatic recovery. Local-clock fallback must be displayed as unlocked or
 degraded, never locked.

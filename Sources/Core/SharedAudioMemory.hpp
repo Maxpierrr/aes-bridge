@@ -42,7 +42,10 @@ struct alignas(64) SharedStatistics final {
     std::atomic<std::uint64_t> ringOverruns{0};
     std::atomic<std::uint64_t> reconnects{0};
     std::atomic<std::uint64_t> sapMalformedPackets{0};
+    std::atomic<std::uint64_t> ptpMessages{0};
+    std::atomic<std::uint64_t> ptpErrors{0};
     std::atomic<std::int64_t> ptpOffsetNanoseconds{0};
+    std::atomic<std::int64_t> ptpMeanPathDelayNanoseconds{0};
 };
 
 struct alignas(64) SharedDiscoveredSession final {

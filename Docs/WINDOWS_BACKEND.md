@@ -7,6 +7,7 @@ Windows virtual audio device yet.
 What already builds on Windows:
 
 - the portable L24, RTP, SDP, SAP, jitter and lock-free ring code;
+- the portable PTPv2 packet codec and E2E four-timestamp calculation tests;
 - a Winsock 2.2 UDP implementation with interface-specific multicast and
   source-specific multicast membership;
 - a named shared-memory audio layout (`Local\\AESBridge.Audio.v3`) exposing 64

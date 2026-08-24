@@ -101,6 +101,10 @@ void printStatusJson(const lxtool::aes67::SharedAudioBlock& block) {
               << ",\"inputUnderruns\":" << block.statistics.inputUnderruns.load(std::memory_order_relaxed)
               << ",\"outputUnderruns\":" << block.statistics.outputUnderruns.load(std::memory_order_relaxed)
               << ",\"ringOverruns\":" << block.statistics.ringOverruns.load(std::memory_order_relaxed)
+              << ",\"ptpMessages\":" << block.statistics.ptpMessages.load(std::memory_order_relaxed)
+              << ",\"ptpErrors\":" << block.statistics.ptpErrors.load(std::memory_order_relaxed)
+              << ",\"ptpOffsetNanoseconds\":" << block.statistics.ptpOffsetNanoseconds.load(std::memory_order_relaxed)
+              << ",\"ptpMeanPathDelayNanoseconds\":" << block.statistics.ptpMeanPathDelayNanoseconds.load(std::memory_order_relaxed)
               << ",\"rxActive\":" << (block.rxActive.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"txActive\":" << (block.txActive.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"ptpLocked\":" << (block.ptpLocked.load(std::memory_order_relaxed) ? "true" : "false")
@@ -136,7 +140,7 @@ void usage() {
               << "        [--rx-port <port>] [--tx-port <port>]\n"
               << "        [--stream-count <1..8>] [--port-stride <0..65535>]\n"
               << "        [--rx-payload-type <0..127>] [--tx-payload-type <0..127>]\n"
-              << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap]\n";
+              << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap] [--no-ptp]\n";
 }
 }
 
@@ -189,6 +193,7 @@ int main(int argc, char** argv) {
     config.txAddress = valueAfter(argc, argv, "--tx-group").value_or(config.txAddress);
     config.enableSAPPublication = !hasOption(argc, argv, "--no-sap") && !hasOption(argc, argv, "--no-sap-publish");
     config.enableSAPDiscovery = !hasOption(argc, argv, "--no-sap") && !hasOption(argc, argv, "--no-sap-discovery");
+    config.enablePTP = !hasOption(argc, argv, "--no-ptp");
 
     try {
         if (const auto value = valueAfter(argc, argv, "--rx-port")) config.rxPort = parseUnsigned<std::uint16_t>(*value, 65'535);

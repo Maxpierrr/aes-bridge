@@ -9,8 +9,9 @@ activate all eight. A portable Windows protocol/Winsock backend shares the same
 
 > Not production-ready. The protocol core and local UDP loopback are tested.
 > RTP RX/TX passes an automated 64-channel/eight-stream UDP loopback test. The Core Audio
-> bundle builds and signs ad hoc, but real PTP discipline and hardware validation
-> are incomplete. RX, TX, PTP, loss behaviour and long-duration stability still
+> bundle builds and signs ad hoc. A software-timestamped PTPv2 E2E client now
+> passes a simulated-grandmaster test, but hardware timestamping and real-device
+> validation are incomplete. RX, TX, PTP, loss behaviour and long-duration stability still
 > require the real Raspberry Pi and a second physical endpoint.
 
 ## Current checkpoint
@@ -30,12 +31,19 @@ activate all eight. A portable Windows protocol/Winsock backend shares the same
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle compiles; not installed |
 | SwiftUI manager and engine controls | Compiles and signs ad hoc with the installed Command Line Tools |
 | Windows protocol/Winsock/shared-memory backend | Implemented; Windows CI is the validation gate |
-| PTPv2 slave/domain 0 | Hardware-facing implementation pending |
+| PTPv2 E2E client/domain 0 | Codec, four-timestamp offset/delay, lock timeout and PTP-derived RTP timestamps implemented; simulated GM passes |
 | Raspberry Pi validation | Pending |
 
 The audio callback only performs bounded copies through preallocated SPSC
 rings and atomic counter updates. It contains no network access, locks,
 allocation, logging or blocking calls.
+
+PTP currently uses software ingress/egress timestamps. A lock requires fresh
+Announce and Sync/Follow_Up messages plus four stable Delay_Req/Delay_Resp E2E
+measurements. RTP timestamps are then derived from estimated master time and
+all active banks share the same one-millisecond packet epoch. This must not be
+treated as hardware-qualified PTP until tested against the real grandmaster,
+NIC and switch.
 
 ## Network profile matched to LXToolPi
 

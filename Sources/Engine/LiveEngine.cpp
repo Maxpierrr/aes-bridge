@@ -10,6 +10,7 @@
 #include "Core/SDP.hpp"
 #include "Core/SessionDirectory.hpp"
 #include "Core/UDPSocket.hpp"
+#include "Engine/PTPClient.hpp"
 
 #include <algorithm>
 #include <array>
@@ -49,6 +50,14 @@ std::string bankAddress(const std::string& base, std::size_t bank) {
 std::uint16_t bankPort(std::uint16_t base, std::uint16_t stride, std::size_t bank) noexcept {
     return static_cast<std::uint16_t>(static_cast<std::size_t>(base) + static_cast<std::size_t>(stride) * bank);
 }
+
+std::uint32_t rtpTimestampForNanoseconds(std::int64_t nanoseconds) noexcept {
+    if (nanoseconds < 0) nanoseconds = 0;
+    const auto seconds = static_cast<std::uint64_t>(nanoseconds / 1'000'000'000LL);
+    const auto remainder = static_cast<std::uint64_t>(nanoseconds % 1'000'000'000LL);
+    const auto samples = seconds * kSampleRate + remainder * kSampleRate / 1'000'000'000ULL;
+    return static_cast<std::uint32_t>(samples);
+}
 }
 
 LiveEngine::LiveEngine(LiveEngineConfig config) : config_(std::move(config)) {}
@@ -84,6 +93,10 @@ bool LiveEngine::start() {
     block->activeStreamCount.store(static_cast<std::uint32_t>(config_.streamCount), std::memory_order_release);
     activeReceivers_.store(0);
     activeTransmitters_.store(0);
+    const auto steadyNow = std::chrono::steady_clock::now();
+    transmitEpoch_ = steadyNow + 20ms;
+    transmitSystemEpochNanoseconds_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 20'000'000LL;
     streams_.reserve(config_.streamCount);
     try {
         for (std::size_t bank = 0; bank < config_.streamCount; ++bank) {
@@ -99,6 +112,16 @@ bool LiveEngine::start() {
     }
     if (config_.enableSAPPublication) sapPublishThread_ = std::thread(&LiveEngine::sapPublishLoop, this);
     if (config_.enableSAPDiscovery) sapDiscoveryThread_ = std::thread(&LiveEngine::sapDiscoveryLoop, this);
+    if (config_.enablePTP) {
+        PTPClientConfig ptpConfig;
+        ptpConfig.multicastAddress = config_.ptpAddress;
+        ptpConfig.interfaceAddress = config_.interfaceAddress;
+        ptpConfig.eventReceivePort = config_.ptpEventPort;
+        ptpConfig.eventTransmitPort = config_.ptpEventPort;
+        ptpConfig.generalReceivePort = config_.ptpGeneralPort;
+        ptpClient_ = std::make_unique<PTPClient>(std::move(ptpConfig), *block);
+        if (!ptpClient_->start()) ptpClient_.reset();
+    }
     return true;
 }
 
@@ -111,6 +134,8 @@ void LiveEngine::stop() {
     }
     if (sapPublishThread_.joinable()) sapPublishThread_.join();
     if (sapDiscoveryThread_.joinable()) sapDiscoveryThread_.join();
+    if (ptpClient_) ptpClient_->stop();
+    ptpClient_.reset();
     if (auto* block = sharedMemory_.get()) {
         block->rxActive.store(false); block->txActive.store(false); block->activeStreamCount.store(0);
         block->engineRunning.store(false, std::memory_order_release);
@@ -233,16 +258,22 @@ void LiveEngine::transmitLoop(std::size_t bank, StreamRuntime& runtime) {
     packet.ssrc = 0x41455342U + static_cast<std::uint32_t>(bank); packet.payload.resize(kPayloadBytes);
     const auto address = bankAddress(config_.txAddress, bank);
     const auto port = bankPort(config_.txPort, config_.portStride, bank);
+    auto nextDeadline = [this] {
+        const auto now = std::chrono::steady_clock::now();
+        if (now < transmitEpoch_) return transmitEpoch_;
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - transmitEpoch_).count();
+        return transmitEpoch_ + std::chrono::milliseconds(elapsed + 1);
+    };
     while (running_) {
         UDPSocket socket;
         if (!socket.openTransmitter(address, port, config_.interfaceAddress)) {
             setTxActive(runtime, false); block->statistics.reconnects.fetch_add(1); std::this_thread::sleep_for(reconnect.nextDelay()); continue;
         }
         reconnect.connected(); setTxActive(runtime, true);
-        auto next = std::chrono::steady_clock::now();
+        auto next = nextDeadline();
         while (running_) {
-            next += 1ms; std::this_thread::sleep_until(next);
-            if (std::chrono::steady_clock::now() - next > 10ms) next = std::chrono::steady_clock::now();
+            std::this_thread::sleep_until(next);
+            if (std::chrono::steady_clock::now() - next > 10ms) next = nextDeadline();
             bool underrun = false;
             for (std::size_t ch = 0; ch < kChannels; ++ch) {
                 const auto virtualChannel = bank * kAES67ChannelsPerStream + ch;
@@ -252,10 +283,16 @@ void LiveEngine::transmitLoop(std::size_t bank, StreamRuntime& runtime) {
             }
             if (underrun && block->ioRunning.load()) block->statistics.outputUnderruns.fetch_add(1);
             L24Codec::encode(interleaved, packet.payload);
-            packet.sequence = static_cast<std::uint16_t>(packet.sequence + 1U); packet.timestamp += kFramesPerPacket;
+            packet.sequence = static_cast<std::uint16_t>(packet.sequence + 1U);
+            const auto scheduledNanoseconds = transmitSystemEpochNanoseconds_
+                + std::chrono::duration_cast<std::chrono::nanoseconds>(next - transmitEpoch_).count();
+            const auto offset = block->ptpLocked.load(std::memory_order_acquire)
+                ? block->statistics.ptpOffsetNanoseconds.load(std::memory_order_relaxed) : 0;
+            packet.timestamp = rtpTimestampForNanoseconds(scheduledNanoseconds - offset);
             std::size_t written = 0;
             if (!RTPCodec::encode(packet, wire, written) || socket.send(std::span(wire).first(written)) != static_cast<std::ptrdiff_t>(written)) break;
             block->statistics.txPackets.fetch_add(1);
+            next += 1ms;
         }
         setTxActive(runtime, false);
         if (running_) { block->statistics.reconnects.fetch_add(1); std::this_thread::sleep_for(reconnect.nextDelay()); }

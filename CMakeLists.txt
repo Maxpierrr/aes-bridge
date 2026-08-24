@@ -21,6 +21,7 @@ endfunction()
 
 add_library(AESBridgeProtocol STATIC
     Sources/Core/L24Codec.cpp
+    Sources/Core/PTP.cpp
     Sources/Core/RTPPacket.cpp
     Sources/Core/SDP.cpp
     Sources/Core/SAP.cpp
@@ -50,6 +51,7 @@ aesbridge_strict_warnings(AESBridgeCore)
 add_executable(aes-bridge-engine
     Sources/Engine/EngineMain.cpp
     Sources/Engine/LiveEngine.cpp
+    Sources/Engine/PTPClient.cpp
 )
 target_link_libraries(aes-bridge-engine PRIVATE AESBridgeCore)
 aesbridge_strict_warnings(aes-bridge-engine)
@@ -120,7 +122,7 @@ if(AESBRIDGE_BUILD_TESTS)
     add_test(NAME AESBridgeProtocol COMMAND AESBridgeProtocolTests)
 if(UNIX)
     add_executable(AESBridgeTests Tests/CoreTests.cpp)
-    target_sources(AESBridgeTests PRIVATE Sources/Engine/LiveEngine.cpp)
+    target_sources(AESBridgeTests PRIVATE Sources/Engine/LiveEngine.cpp Sources/Engine/PTPClient.cpp)
     target_link_libraries(AESBridgeTests PRIVATE AESBridgeCore)
     aesbridge_strict_warnings(AESBridgeTests)
     add_test(NAME AESBridgeCore COMMAND AESBridgeTests)

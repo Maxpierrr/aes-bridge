@@ -81,8 +81,8 @@ LXToolPi / PipeWire / RASPIAUDIO 8×8, or another 64×64 computer endpoint
 
 The current prototype uses a preallocated mmap file containing lock-free SPSC
 rings and atomics; no file or socket operation occurs in the audio callback.
-Migration to an authenticated launchd/Mach service and real PTP discipline is
-still pending, so this checkpoint is not described as production-ready.
+Migration to an authenticated launchd/Mach service and hardware-qualified PTP
+discipline is still pending, so this checkpoint is not described as production-ready.
 
 ## Current implementation checkpoint
 
@@ -92,6 +92,14 @@ publishes deletion announcements. RX supports source-specific multicast and
 recovers from RTP SSRC changes without touching the Core Audio callback path.
 The virtual endpoint remains fixed at 64×64; each validated 8-channel session
 maps to one immutable bank so that no RTP packet exceeds the Ethernet MTU.
+
+The engine now contains an IEEE 1588-2008/domain-0 E2E client. It parses
+Announce, Sync, Follow_Up and Delay_Resp, emits Delay_Req, calculates offset and
+mean path delay from four timestamps, rejects stale locks and aligns all RTP
+banks to one PTP-derived packet epoch. Its automated test uses a simulated
+grandmaster and software timestamps. BMCA with multiple grandmasters, hardware
+timestamping, clock-frequency servo behaviour and real switch interoperability
+remain hardware validation gates.
 
 The portable protocol layer is also compiled by a Windows CI job. Its Winsock
 and named-shared-memory backend is preparation only: no Windows virtual audio

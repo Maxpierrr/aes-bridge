@@ -11,10 +11,12 @@
 #include "Core/SPSCRingBuffer.hpp"
 #include "Core/UDPSocket.hpp"
 #include "Engine/LiveEngine.hpp"
+#include "Engine/PTPClient.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <iostream>
 #include <thread>
@@ -196,6 +198,7 @@ void testLiveEngineLoopbackAndChannelOrder() {
     config.jitterPackets = 3;
     config.enableSAPPublication = false;
     config.enableSAPDiscovery = false;
+    config.enablePTP = false;
 
     lxtool::aes67::LiveEngine engine(config);
     CHECK(engine.start());
@@ -250,6 +253,7 @@ void testLiveSAPDiscoveryAndDeletion() {
     config.sapPort = 54684;
     config.enableSAPPublication = false;
     config.enableSAPDiscovery = true;
+    config.enablePTP = false;
 
     lxtool::aes67::LiveEngine engine(config);
     CHECK(engine.start());
@@ -305,6 +309,7 @@ void testRTPSourceRestartRecovery() {
     config.jitterPackets = 3;
     config.enableSAPPublication = false;
     config.enableSAPDiscovery = false;
+    config.enablePTP = false;
     LiveEngine engine(config);
     CHECK(engine.start());
     auto* block = engine.sharedBlock();
@@ -362,6 +367,7 @@ void testEightBankSAPPublication() {
     config.sapPort = 54690;
     config.enableSAPPublication = true;
     config.enableSAPDiscovery = false;
+    config.enablePTP = false;
     LiveEngine engine(config);
     CHECK(engine.start());
     std::array<bool, kStreamBankCount> seen{};
@@ -387,12 +393,116 @@ void testEightBankSAPPublication() {
     engine.stop();
     CHECK(SharedAudioMemory::remove());
 }
+
+void testPTPE2ELockAndTimeout() {
+    using namespace std::chrono_literals;
+    using namespace lxtool::aes67;
+    CHECK(SharedAudioMemory::remove());
+    SharedAudioMemory memory;
+    CHECK(memory.open(true));
+    if (!memory.get()) return;
+
+    PTPPortIdentity clientIdentity{{0x02, 1, 2, 3, 4, 5, 6, 7}, 1};
+    PTPPortIdentity masterIdentity{{0x02, 9, 8, 7, 6, 5, 4, 3}, 1};
+    PTPClientConfig config;
+    config.multicastAddress = "127.0.0.1";
+    config.interfaceAddress = "127.0.0.1";
+    config.eventReceivePort = 54800;
+    config.eventTransmitPort = 54801;
+    config.generalReceivePort = 54802;
+    config.localIdentity = clientIdentity;
+
+    UDPSocket syncSender;
+    UDPSocket generalSender;
+    UDPSocket delayRequestListener;
+    CHECK(syncSender.openTransmitter("127.0.0.1", config.eventReceivePort, "127.0.0.1"));
+    CHECK(generalSender.openTransmitter("127.0.0.1", config.generalReceivePort, "127.0.0.1"));
+    CHECK(delayRequestListener.openReceiver("127.0.0.1", config.eventTransmitPort, "127.0.0.1"));
+
+    {
+    PTPClient client(config, *memory.get());
+    CHECK(client.start());
+    constexpr std::int64_t simulatedOffset = 2'000'000LL;
+    auto systemNow = [] { return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count(); };
+    std::array<std::uint8_t, 256> wire{};
+    unsigned responses = 0;
+    for (std::uint16_t cycle = 1; cycle <= 40 && responses < 6; ++cycle) {
+        const auto announce = PTPCodec::encodeAnnounce(masterIdentity, cycle, 0);
+        const auto t1 = systemNow() - simulatedOffset;
+        const auto sync = PTPCodec::encodeTimestampMessage(PTPMessageType::sync, masterIdentity, cycle, 0, 0, true);
+        const auto followUp = PTPCodec::encodeTimestampMessage(PTPMessageType::followUp, masterIdentity, cycle, 0, t1);
+        CHECK(generalSender.send(announce) == static_cast<std::ptrdiff_t>(announce.size()));
+        CHECK(syncSender.send(sync) == static_cast<std::ptrdiff_t>(sync.size()));
+        CHECK(generalSender.send(followUp) == static_cast<std::ptrdiff_t>(followUp.size()));
+        const auto count = delayRequestListener.receive(wire, 120ms);
+        if (count <= 0) continue;
+        PTPMessage request;
+        CHECK(PTPCodec::decode(std::span(wire).first(static_cast<std::size_t>(count)), 0, request));
+        const auto response = PTPCodec::encodeDelayResponse(masterIdentity, clientIdentity, request.sequence, 0,
+            systemNow() - simulatedOffset);
+        CHECK(generalSender.send(response) == static_cast<std::ptrdiff_t>(response.size()));
+        ++responses;
+        std::this_thread::sleep_for(40ms);
+    }
+    CHECK(responses >= 6);
+    bool locked = false;
+    for (int attempt = 0; attempt < 20 && !locked; ++attempt) {
+        locked = memory.get()->ptpLocked.load(std::memory_order_acquire);
+        std::this_thread::sleep_for(25ms);
+    }
+    CHECK(locked);
+    CHECK(std::llabs(memory.get()->statistics.ptpOffsetNanoseconds.load() - simulatedOffset) < 3'000'000LL);
+    CHECK(memory.get()->statistics.ptpMeanPathDelayNanoseconds.load() >= 0);
+    CHECK(memory.get()->statistics.ptpMessages.load() >= 19);
+    client.stop();
+    CHECK(!memory.get()->ptpLocked.load());
+    }
+    memory.close();
+    CHECK(SharedAudioMemory::remove());
+}
+
+void testBankTimestampAlignment() {
+    using namespace lxtool::aes67;
+    CHECK(SharedAudioMemory::remove());
+    UDPSocket firstListener;
+    UDPSocket secondListener;
+    CHECK(firstListener.openReceiver("127.0.0.1", 54820, "127.0.0.1"));
+    CHECK(secondListener.openReceiver("127.0.0.1", 54821, "127.0.0.1"));
+    LiveEngineConfig config;
+    config.interfaceAddress = "127.0.0.1";
+    config.rxAddress = "127.0.0.1";
+    config.txAddress = "127.0.0.1";
+    config.rxPort = 54830;
+    config.txPort = 54820;
+    config.streamCount = 2;
+    config.portStride = 1;
+    config.enableSAPPublication = false;
+    config.enableSAPDiscovery = false;
+    config.enablePTP = false;
+    LiveEngine engine(config);
+    CHECK(engine.start());
+    std::array<std::uint8_t, 1400> firstWire{};
+    std::array<std::uint8_t, 1400> secondWire{};
+    const auto firstCount = firstListener.receive(firstWire, std::chrono::milliseconds(500));
+    const auto secondCount = secondListener.receive(secondWire, std::chrono::milliseconds(500));
+    RTPPacket firstPacket;
+    RTPPacket secondPacket;
+    CHECK(firstCount > 0 && RTPCodec::decode(std::span(firstWire).first(static_cast<std::size_t>(firstCount)), firstPacket));
+    CHECK(secondCount > 0 && RTPCodec::decode(std::span(secondWire).first(static_cast<std::size_t>(secondCount)), secondPacket));
+    CHECK(firstPacket.timestamp == secondPacket.timestamp);
+    CHECK(firstPacket.ssrc != secondPacket.ssrc);
+    engine.stop();
+    CHECK(SharedAudioMemory::remove());
+}
 }
 
 int main() {
     testL24(); testRTP(); testSDP(); testSAP(); testChannelOrder(); testJitterAndLoss(); testRingAndReconnect(); testUDPLoopback();
     testSharedAudioMemory(); testLiveEngineLoopbackAndChannelOrder(); testLiveSAPDiscoveryAndDeletion(); testRTPSourceRestartRecovery();
     testEightBankSAPPublication();
+    testPTPE2ELockAndTimeout();
+    testBankTimestampAlignment();
     if (failures == 0) std::cout << "All AES Bridge core and live-loopback tests passed\n";
     return failures == 0 ? 0 : 1;
 }

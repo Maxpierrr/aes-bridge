@@ -36,6 +36,9 @@ struct DiscoveredSession: Identifiable, Hashable {
     @Published var jitterMilliseconds = 6
     @Published var engineState = "Non connecté"
     @Published var ptpState = "Non validé"
+    @Published var ptpOffsetNanoseconds: Int64 = 0
+    @Published var ptpPathDelayNanoseconds: Int64 = 0
+    @Published var ptpErrors: UInt64 = 0
     @Published var rxPackets: UInt64 = 0
     @Published var txPackets: UInt64 = 0
     @Published var losses: UInt64 = 0
@@ -165,6 +168,9 @@ struct DiscoveredSession: Identifiable, Hashable {
             else { engineState = engineProcess?.isRunning == true ? "Démarrage…" : "Arrêté"; return }
             engineState = (object["engineRunning"] as? Bool) == true ? "En fonctionnement" : "Arrêté"
             ptpState = (object["ptpLocked"] as? Bool) == true ? "Verrouillé" : "Non verrouillé"
+            ptpOffsetNanoseconds = (object["ptpOffsetNanoseconds"] as? NSNumber)?.int64Value ?? 0
+            ptpPathDelayNanoseconds = (object["ptpMeanPathDelayNanoseconds"] as? NSNumber)?.int64Value ?? 0
+            ptpErrors = (object["ptpErrors"] as? NSNumber)?.uint64Value ?? 0
             rxPackets = (object["rxPackets"] as? NSNumber)?.uint64Value ?? 0
             txPackets = (object["txPackets"] as? NSNumber)?.uint64Value ?? 0
             losses = (object["lostPackets"] as? NSNumber)?.uint64Value ?? 0
@@ -257,6 +263,8 @@ struct ContentView: View {
                     Grid(alignment: .leading) {
                         GridRow { Text("RX"); Text("\(model.rxPackets)"); Text("TX"); Text("\(model.txPackets)") }
                         GridRow { Text("Pertes"); Text("\(model.losses)"); Text("Erreurs"); Text("\(model.errors)") }
+                        GridRow { Text("Offset PTP"); Text("\(model.ptpOffsetNanoseconds) ns"); Text("Délai PTP"); Text("\(model.ptpPathDelayNanoseconds) ns") }
+                        GridRow { Text("Erreurs PTP"); Text("\(model.ptpErrors)"); Text(""); Text("") }
                     }
                 }
                 Section {

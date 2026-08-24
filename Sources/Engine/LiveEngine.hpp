@@ -5,6 +5,7 @@
 #include "Core/JitterBuffer.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -12,6 +13,8 @@
 #include <vector>
 
 namespace lxtool::aes67 {
+
+class PTPClient;
 
 struct LiveEngineConfig final {
     std::string interfaceName;
@@ -31,6 +34,10 @@ struct LiveEngineConfig final {
     std::uint32_t sapSessionTimeoutSeconds{15};
     bool enableSAPPublication{true};
     bool enableSAPDiscovery{true};
+    bool enablePTP{true};
+    std::string ptpAddress{"224.0.1.129"};
+    std::uint16_t ptpEventPort{319};
+    std::uint16_t ptpGeneralPort{320};
 };
 
 class LiveEngine final {
@@ -68,9 +75,12 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<std::size_t> activeReceivers_{0};
     std::atomic<std::size_t> activeTransmitters_{0};
+    std::chrono::steady_clock::time_point transmitEpoch_{};
+    std::int64_t transmitSystemEpochNanoseconds_{0};
     std::vector<std::unique_ptr<StreamRuntime>> streams_;
     std::thread sapPublishThread_;
     std::thread sapDiscoveryThread_;
+    std::unique_ptr<PTPClient> ptpClient_;
 };
 
 } // namespace lxtool::aes67

@@ -4,6 +4,7 @@
 #include "Core/IPv4Address.hpp"
 #include "Core/JitterBuffer.hpp"
 #include "Core/L24Codec.hpp"
+#include "Core/PTP.hpp"
 #include "Core/RTPPacket.hpp"
 #include "Core/SAP.hpp"
 #include "Core/SDP.hpp"
@@ -90,6 +91,33 @@ void test64ChannelOrder() {
         for (const auto sample : channel) CHECK(sample == static_cast<float>(index + 1));
     }
 }
+
+void testPTPCodecAndE2ECalculation() {
+    using namespace lxtool::aes67;
+    PTPPortIdentity identity{{0x02, 0x11, 0x22, 0xff, 0xfe, 0x33, 0x44, 0x55}, 1};
+    constexpr std::int64_t origin = 1'700'000'000'123'456'789LL;
+    auto bytes = PTPCodec::encodeDelayRequest(identity, 0x1234, 0, origin);
+    PTPMessage message;
+    CHECK(PTPCodec::decode(bytes, 0, message));
+    CHECK(message.type == PTPMessageType::delayRequest && message.source == identity);
+    CHECK(message.sequence == 0x1234 && message.timestampNanoseconds == origin);
+    CHECK(!PTPCodec::decode(bytes, 1, message));
+    bytes[0] = static_cast<std::uint8_t>(PTPMessageType::followUp);
+    bytes[6] = 0x02;
+    CHECK(PTPCodec::decode(bytes, 0, message) && message.twoStep && message.timestampNanoseconds == origin);
+    bytes[40] = 0x3b; bytes[41] = 0x9a; bytes[42] = 0xca; bytes[43] = 0x00;
+    CHECK(!PTPCodec::decode(bytes, 0, message));
+
+    constexpr std::int64_t t1 = 1'000'000'000LL;
+    constexpr std::int64_t t2 = t1 + 2'100'000LL;
+    constexpr std::int64_t t3 = 2'000'000'000LL;
+    constexpr std::int64_t t4 = t3 - 1'900'000LL;
+    const auto measurement = PTPCodec::calculateE2E(t1, t2, t3, t4);
+    CHECK(measurement.has_value());
+    CHECK(measurement->offsetNanoseconds == 2'000'000LL);
+    CHECK(measurement->meanPathDelayNanoseconds == 100'000LL);
+    CHECK(!PTPCodec::calculateE2E(t1, t1, t3, t3 - 2));
+}
 }
 
 int main() {
@@ -98,6 +126,7 @@ int main() {
     testSDPAndSAP();
     testLockFreeContainers();
     test64ChannelOrder();
+    testPTPCodecAndE2ECalculation();
     if (failures == 0) std::cout << "AES Bridge portable protocol tests passed\n";
     return failures == 0 ? 0 : 1;
 }
