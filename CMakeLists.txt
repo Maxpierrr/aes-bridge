@@ -12,7 +12,8 @@ option(AESBRIDGE_BUILD_WINDOWS_BACKEND "Build the Windows network backend scaffo
 
 function(aesbridge_strict_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
+        # C4324 is expected for the cache-line-aligned lock-free shared structs.
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive- /wd4324)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
