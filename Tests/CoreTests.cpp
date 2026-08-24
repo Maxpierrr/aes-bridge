@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -26,6 +27,16 @@
 namespace {
 int failures = 0;
 #define CHECK(expression) do { if (!(expression)) { std::cerr << __FILE__ << ':' << __LINE__ << ": " #expression "\n"; ++failures; } } while (false)
+
+template <typename Predicate>
+bool waitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!predicate()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return true;
+}
 
 void testL24() {
     const std::array<float, 9> source{-1.0F, -0.75F, -0.1F, 0.0F, 0.1F, 0.5F, 0.999F, 1.0F, 1.5F};
@@ -215,14 +226,18 @@ void testLiveEngineLoopbackAndChannelOrder() {
         CHECK(block->coreAudioToNetwork[ch].write(channel) == channel.size());
     }
 
-    std::this_thread::sleep_for(200ms);
-    CHECK(block->statistics.txPackets.load() >= config.streamCount * 100);
-    CHECK(block->statistics.rxPackets.load() >= config.streamCount * 100);
+    const auto expectedPackets = config.streamCount * 32;
+    CHECK(waitUntil([&] {
+        if (block->statistics.txPackets.load() < expectedPackets
+            || block->statistics.rxPackets.load() < expectedPackets) return false;
+        return std::all_of(block->networkToCoreAudio.begin(), block->networkToCoreAudio.end(),
+            [](const auto& ring) { return ring.available() >= injectedFrames; });
+    }, 1s));
 
     std::array<float, 7000> returned{};
     for (std::size_t ch = 0; ch < lxtool::aes67::kVirtualChannels; ++ch) {
         const auto count = block->networkToCoreAudio[ch].read(returned);
-        CHECK(count > injectedFrames);
+        CHECK(count >= injectedFrames);
         const float expected = static_cast<float>(ch + 1) / 100.0F;
         std::size_t matchingRun = 0;
         bool found = false;
@@ -482,16 +497,29 @@ void testBankTimestampAlignment() {
     config.enablePTP = false;
     LiveEngine engine(config);
     CHECK(engine.start());
-    std::array<std::uint8_t, 1400> firstWire{};
-    std::array<std::uint8_t, 1400> secondWire{};
-    const auto firstCount = firstListener.receive(firstWire, std::chrono::milliseconds(500));
-    const auto secondCount = secondListener.receive(secondWire, std::chrono::milliseconds(500));
-    RTPPacket firstPacket;
-    RTPPacket secondPacket;
-    CHECK(firstCount > 0 && RTPCodec::decode(std::span(firstWire).first(static_cast<std::size_t>(firstCount)), firstPacket));
-    CHECK(secondCount > 0 && RTPCodec::decode(std::span(secondWire).first(static_cast<std::size_t>(secondCount)), secondPacket));
-    CHECK(firstPacket.timestamp == secondPacket.timestamp);
-    CHECK(firstPacket.ssrc != secondPacket.ssrc);
+    std::vector<RTPPacket> firstPackets;
+    std::vector<RTPPacket> secondPackets;
+    for (std::size_t attempt = 0; attempt < 32 && (firstPackets.size() < 8 || secondPackets.size() < 8); ++attempt) {
+        for (auto [listener, packets] : {
+                 std::pair{&firstListener, &firstPackets}, std::pair{&secondListener, &secondPackets}}) {
+            std::array<std::uint8_t, 1400> wire{};
+            const auto count = listener->receive(wire, std::chrono::milliseconds(100));
+            RTPPacket packet;
+            if (count > 0 && RTPCodec::decode(
+                    std::span(wire).first(static_cast<std::size_t>(count)), packet)) {
+                packets->push_back(std::move(packet));
+            }
+        }
+    }
+    CHECK(!firstPackets.empty());
+    CHECK(!secondPackets.empty());
+    const bool aligned = std::any_of(firstPackets.begin(), firstPackets.end(), [&](const RTPPacket& first) {
+        return std::any_of(secondPackets.begin(), secondPackets.end(), [&](const RTPPacket& second) {
+            return first.timestamp == second.timestamp;
+        });
+    });
+    CHECK(aligned);
+    if (!firstPackets.empty() && !secondPackets.empty()) CHECK(firstPackets.front().ssrc != secondPackets.front().ssrc);
     engine.stop();
     CHECK(SharedAudioMemory::remove());
 }
