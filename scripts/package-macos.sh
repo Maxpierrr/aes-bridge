@@ -30,8 +30,10 @@ package_root="${stage}/AES Bridge macOS development"
 /usr/bin/ditto --norsrc --noextattr "${project_dir}/Packaging/macOS/INSTALLATION.txt" "${package_root}/INSTALLATION.txt"
 /usr/bin/ditto --norsrc --noextattr "${project_dir}/LICENSE" "${package_root}/LICENSE"
 /usr/bin/ditto --norsrc --noextattr "${project_dir}/THIRD_PARTY_NOTICES.md" "${package_root}/THIRD_PARTY_NOTICES.md"
+/bin/chmod -R u+rwX,go+rX,go-w "${package_root}"
 /bin/chmod 0755 "${package_root}/Installer/preflight.sh" "${package_root}/Installer/install-dev.sh" \
-    "${package_root}/Installer/uninstall.sh" "${package_root}/Installer/verify-installed.sh" \
+    "${package_root}/Installer/uninstall.sh" "${package_root}/Installer/repair-dev-permissions.sh" \
+    "${package_root}/Installer/verify-installed.sh" \
     "${package_root}/build/AESBridgeDriverSmoke" "${package_root}/build/AESBridgeCoreAudioCheck"
 [[ ! -e "${archive}" ]] || /bin/rm -- "${archive}"
 [[ ! -e "${checksum}" ]] || /bin/rm -- "${checksum}"

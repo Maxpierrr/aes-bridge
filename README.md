@@ -165,6 +165,14 @@ After restarting macOS, perform the authoritative installed-device check:
 ./Installer/verify-installed.sh
 ```
 
+Early development builds installed their `Info.plist` files with permissions
+that were too restrictive when the source workspace was on SMB. Repair such an
+existing installation once, then restart macOS again:
+
+```sh
+sudo ./Installer/repair-dev-permissions.sh
+```
+
 It verifies the exact bundle IDs, signatures and quarantine state, executes the
 embedded engine, then uses the diagnostic embedded in the installed app to
 query Core Audio for the `AES Bridge` UID, 64 input channels, 64 output channels
