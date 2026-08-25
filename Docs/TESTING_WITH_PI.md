@@ -95,7 +95,9 @@ signatures and HAL/RTP roundtrip. Quit every running AES Bridge instance before
 running `Installer/install-dev.sh`; the installer deliberately refuses to
 replace a running development build.
 
-After reboot, run `Installer/verify-installed.sh` with the same build directory.
+After reboot, run `Installer/verify-installed.sh`. The diagnostic is embedded in
+the installed application, so the temporary build directory is no longer
+required for this check.
 Do not proceed to DAW or network tests unless it reports valid installed bundle
 IDs, signatures, no quarantine, and an exact Core Audio 64×64/48 kHz device.
 

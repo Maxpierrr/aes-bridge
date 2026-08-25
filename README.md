@@ -162,12 +162,14 @@ sudo ./Installer/install-dev.sh /private/tmp/aes-bridge-build "/private/tmp/aes-
 After restarting macOS, perform the authoritative installed-device check:
 
 ```sh
-./Installer/verify-installed.sh /private/tmp/aes-bridge-build
+./Installer/verify-installed.sh
 ```
 
 It verifies the exact bundle IDs, signatures and quarantine state, executes the
-embedded engine, then queries Core Audio for the `AES Bridge` UID, 64 input
-channels, 64 output channels and fixed 48 kHz rate.
+embedded engine, then uses the diagnostic embedded in the installed app to
+query Core Audio for the `AES Bridge` UID, 64 input channels, 64 output channels
+and fixed 48 kHz rate. The post-reboot check does not depend on a temporary
+build directory.
 
 It uses `/Library/Audio/Plug-Ins/HAL/AESBridge.driver`, the Apple-documented
 HAL location. It does not disable SIP, request Reduced Security, or install a

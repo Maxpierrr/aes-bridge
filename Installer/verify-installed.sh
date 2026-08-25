@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 set -euo pipefail
 
-project_dir="${0:A:h:h}"
-build_dir="${1:-${project_dir}/build}"
-checker="${build_dir}/AESBridgeCoreAudioCheck"
 driver="/Library/Audio/Plug-Ins/HAL/AESBridge.driver"
 manager="/Applications/AES Bridge.app"
 engine="${manager}/Contents/Resources/aes-bridge-engine"
+checker="${manager}/Contents/Resources/AESBridgeCoreAudioCheck"
 
 fail() { print -u2 -- "Vérification AES Bridge: $*"; exit 1; }
 bundle_id() { /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null; }
@@ -15,7 +13,7 @@ bundle_id() { /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Content
 [[ -d "${driver}" ]] || fail "pilote non installé: ${driver}"
 [[ -d "${manager}" ]] || fail "application non installée: ${manager}"
 [[ -x "${engine}" ]] || fail "moteur embarqué absent"
-[[ -x "${checker}" ]] || fail "diagnostic Core Audio absent: ${checker}"
+[[ -x "${checker}" ]] || fail "diagnostic Core Audio embarqué absent: ${checker}"
 [[ "$(bundle_id "${driver}")" == "org.maxpierr.aesbridge.driver" ]] || fail "bundle ID du pilote incorrect"
 [[ "$(bundle_id "${manager}")" == "org.maxpierr.aesbridge.manager" ]] || fail "bundle ID de l'application incorrect"
 /usr/bin/codesign --verify --deep --strict "${driver}" || fail "signature du pilote invalide"

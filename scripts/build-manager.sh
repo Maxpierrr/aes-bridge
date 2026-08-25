@@ -4,6 +4,7 @@ set -euo pipefail
 project_dir="${0:A:h:h}"
 engine_binary="${1:-${project_dir}/build/aes-bridge-engine}"
 build_dir="${2:-/private/tmp/aes-bridge-dist}"
+core_audio_check="${3:-${engine_binary:h}/AESBridgeCoreAudioCheck}"
 stage_dir="$(mktemp -d /private/tmp/aes-bridge-manager.XXXXXX)"
 trap 'rm -rf "${stage_dir}"' EXIT
 app_dir="${stage_dir}/AES Bridge.app"
@@ -24,10 +25,13 @@ swiftc -parse-as-library -O \
   "${project_dir}/ManagerApp/AESBridgeManager.swift" \
   -o "${app_dir}/Contents/MacOS/AESBridgeManager"
 [[ -x "${engine_binary}" ]] || { echo "Moteur absent: ${engine_binary}"; exit 1; }
+[[ -x "${core_audio_check}" ]] || { echo "Diagnostic Core Audio absent: ${core_audio_check}"; exit 1; }
 cp "${engine_binary}" "${app_dir}/Contents/Resources/aes-bridge-engine"
+cp "${core_audio_check}" "${app_dir}/Contents/Resources/AESBridgeCoreAudioCheck"
 cp "${project_dir}/ManagerApp/Info.plist" "${app_dir}/Contents/Info.plist"
 xattr -cr "${app_dir}"
 codesign --force --sign - "${app_dir}/Contents/Resources/aes-bridge-engine"
+codesign --force --sign - "${app_dir}/Contents/Resources/AESBridgeCoreAudioCheck"
 codesign --force --sign - "${app_dir}"
 codesign --verify --deep --strict "${app_dir}"
 mkdir -p "${build_dir}"
