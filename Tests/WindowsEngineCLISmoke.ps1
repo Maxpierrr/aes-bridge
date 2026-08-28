@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 $arguments = @(
     "--run",
     "--interface-address", "127.0.0.1",
