@@ -143,6 +143,13 @@ void testPTPCodecAndE2ECalculation() {
     CHECK(measurement->offsetNanoseconds == 2'000'000LL);
     CHECK(measurement->meanPathDelayNanoseconds == 100'000LL);
     CHECK(!PTPCodec::calculateE2E(t1, t1, t3, t3 - 2));
+
+    const auto announce = PTPCodec::encodeAnnounce(identity, 7, 0);
+    CHECK(PTPCodec::decode(announce, 0, message));
+    CHECK(message.type == PTPMessageType::announce);
+    CHECK(message.grandmasterPriority1 == 128 && message.grandmasterClockClass == 248);
+    CHECK(message.grandmasterClockAccuracy == 0xfe && message.grandmasterPriority2 == 128);
+    CHECK(message.grandmasterIdentity == identity.clock && message.stepsRemoved == 0);
 }
 }
 

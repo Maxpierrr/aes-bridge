@@ -32,6 +32,13 @@ struct PTPMessage final {
     std::uint16_t sequence{0};
     std::optional<std::int64_t> timestampNanoseconds;
     std::optional<PTPPortIdentity> requestingPort;
+    std::uint8_t grandmasterPriority1{255};
+    std::uint8_t grandmasterClockClass{255};
+    std::uint8_t grandmasterClockAccuracy{255};
+    std::uint16_t grandmasterOffsetScaledLogVariance{65535};
+    std::uint8_t grandmasterPriority2{255};
+    std::array<std::uint8_t, 8> grandmasterIdentity{};
+    std::uint16_t stepsRemoved{65535};
 };
 
 struct PTPMeasurement final {

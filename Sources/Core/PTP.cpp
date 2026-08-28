@@ -116,7 +116,18 @@ bool PTPCodec::decode(std::span<const std::uint8_t> bytes, std::uint8_t expected
         if (length < 54) return false;
         message.requestingPort = getPortIdentity(bytes.data() + 44);
     }
-    if (message.type == PTPMessageType::announce && length < 64) return false;
+    if (message.type == PTPMessageType::announce) {
+        if (length < 64) return false;
+        message.grandmasterPriority1 = bytes[47];
+        message.grandmasterClockClass = bytes[48];
+        message.grandmasterClockAccuracy = bytes[49];
+        message.grandmasterOffsetScaledLogVariance = get16(bytes.data() + 50);
+        message.grandmasterPriority2 = bytes[52];
+        for (std::size_t index = 0; index < message.grandmasterIdentity.size(); ++index) {
+            message.grandmasterIdentity[index] = bytes[53 + index];
+        }
+        message.stepsRemoved = get16(bytes.data() + 61);
+    }
     return true;
 }
 

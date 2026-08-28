@@ -93,6 +93,7 @@ export interface RuntimeStatus {
   ptpMeanPathDelayNanoseconds: number;
   rxActive: boolean;
   txActive: boolean;
+  coreAudioRunning: boolean;
   ptpLocked: boolean;
   sessions: DiscoveredSession[];
 }

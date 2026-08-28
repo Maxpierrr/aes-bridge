@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <optional>
+#include <tuple>
 #include <utility>
 
 namespace lxtool::aes67 {
@@ -28,6 +30,17 @@ struct SyncSample final {
     std::int64_t correctionScaledNanoseconds{0};
     SteadyClock::time_point receivedAt{};
 };
+
+using AnnounceRank = std::tuple<std::uint8_t, std::uint8_t, std::uint8_t, std::uint16_t,
+    std::uint8_t, std::array<std::uint8_t, 8>, std::uint16_t,
+    std::array<std::uint8_t, 8>, std::uint16_t>;
+
+AnnounceRank announceRank(const PTPMessage& message) noexcept {
+    return {message.grandmasterPriority1, message.grandmasterClockClass,
+        message.grandmasterClockAccuracy, message.grandmasterOffsetScaledLogVariance,
+        message.grandmasterPriority2, message.grandmasterIdentity, message.stepsRemoved,
+        message.source.clock, message.source.port};
+}
 }
 
 PTPClient::PTPClient(PTPClientConfig config, SharedAudioBlock& sharedBlock)
@@ -53,6 +66,8 @@ bool PTPClient::start() {
     if (config_.interfaceAddress.empty()) { running_.store(false); return false; }
     if (config_.localIdentity.port == 0) config_.localIdentity = identityFromAddress(config_.interfaceAddress);
     sharedBlock_.ptpLocked.store(false, std::memory_order_release);
+    sharedBlock_.statistics.ptpOffsetNanoseconds.store(0, std::memory_order_relaxed);
+    sharedBlock_.statistics.ptpMeanPathDelayNanoseconds.store(0, std::memory_order_relaxed);
     try {
         thread_ = std::thread(&PTPClient::loop, this);
     } catch (...) {
@@ -83,6 +98,7 @@ void PTPClient::loop() {
 
     std::array<std::uint8_t, 1600> wire{};
     std::optional<PTPPortIdentity> master;
+    std::optional<AnnounceRank> masterRank;
     SteadyClock::time_point lastAnnounce{};
     SteadyClock::time_point lastSync{};
     std::optional<SyncSample> sync;
@@ -92,8 +108,18 @@ void PTPClient::loop() {
     auto nextDelayRequest = SteadyClock::now();
     std::optional<std::int64_t> filteredOffset;
     unsigned stableMeasurements = 0;
+    SteadyClock::time_point lastValidMeasurement{};
+    const bool traceMeasurements = std::getenv("AES_BRIDGE_PTP_TRACE") != nullptr;
 
     auto process = [&](std::span<const std::uint8_t> bytes, std::int64_t ingressNanoseconds) {
+        // Dante can emit PTPv1 and PTPv2 concurrently on these ports. Traffic
+        // from another version/domain is expected and must not be reported as
+        // malformed PTPv2 for this AES67 clock domain.
+        if (bytes.size() < PTPCodec::kHeaderBytes) {
+            sharedBlock_.statistics.ptpErrors.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        if ((bytes[1] & 0x0fU) != 2U || bytes[4] != config_.domain) return;
         PTPMessage message;
         if (!PTPCodec::decode(bytes, config_.domain, message)) {
             sharedBlock_.statistics.ptpErrors.fetch_add(1, std::memory_order_relaxed);
@@ -102,12 +128,23 @@ void PTPClient::loop() {
         sharedBlock_.statistics.ptpMessages.fetch_add(1, std::memory_order_relaxed);
         const auto now = SteadyClock::now();
         if (message.type == PTPMessageType::announce) {
+            const auto rank = announceRank(message);
+            const bool masterExpired = lastAnnounce != SteadyClock::time_point{} && now - lastAnnounce >= 3s;
+            const bool select = !master || masterExpired || message.source == *master
+                || !masterRank || rank < *masterRank;
+            if (!select) return;
             if (!master || *master != message.source) {
+                if (traceMeasurements) {
+                    std::cerr << "PTPv2 maitre selectionne: ";
+                    for (const auto byte : message.source.clock) std::cerr << std::hex << static_cast<unsigned>(byte);
+                    std::cerr << std::dec << ':' << message.source.port << '\n';
+                }
                 master = message.source;
                 sync.reset();
                 stableMeasurements = 0;
                 sharedBlock_.ptpLocked.store(false, std::memory_order_release);
             }
+            masterRank = rank;
             lastAnnounce = now;
             return;
         }
@@ -132,20 +169,33 @@ void PTPClient::loop() {
             pendingDelayEgress, *message.timestampNanoseconds, sync->correctionScaledNanoseconds,
             message.correctionScaledNanoseconds);
         pendingDelaySequence.reset();
+        if (traceMeasurements && measurement) {
+            std::cerr << "PTPv2 mesure: offset=" << measurement->offsetNanoseconds
+                      << " ns delai=" << measurement->meanPathDelayNanoseconds
+                      << " ns stables=" << stableMeasurements << '\n';
+        }
         if (!measurement || measurement->meanPathDelayNanoseconds > 20'000'000LL) {
-            stableMeasurements = 0;
-            sharedBlock_.ptpLocked.store(false, std::memory_order_release);
+            if (traceMeasurements) std::cerr << "PTPv2 mesure logicielle ignoree\n";
+            if (lastValidMeasurement != SteadyClock::time_point{} && now - lastValidMeasurement >= 2s) {
+                stableMeasurements = 0;
+                sharedBlock_.ptpLocked.store(false, std::memory_order_release);
+                sharedBlock_.statistics.ptpOffsetNanoseconds.store(0, std::memory_order_relaxed);
+                sharedBlock_.statistics.ptpMeanPathDelayNanoseconds.store(0, std::memory_order_relaxed);
+            }
             return;
         }
         if (filteredOffset && std::llabs(measurement->offsetNanoseconds - *filteredOffset) <= 2'000'000LL) {
             ++stableMeasurements;
-            *filteredOffset = (*filteredOffset * 7 + measurement->offsetNanoseconds) / 8;
+            // Equivalent to (7 * old + sample) / 8 without overflowing when
+            // a grandmaster uses an epoch far from the host system clock.
+            *filteredOffset += (measurement->offsetNanoseconds - *filteredOffset) / 8;
         } else {
             filteredOffset = measurement->offsetNanoseconds;
             stableMeasurements = 1;
         }
         sharedBlock_.statistics.ptpOffsetNanoseconds.store(*filteredOffset, std::memory_order_relaxed);
         sharedBlock_.statistics.ptpMeanPathDelayNanoseconds.store(measurement->meanPathDelayNanoseconds, std::memory_order_relaxed);
+        lastValidMeasurement = now;
         const bool fresh = now - lastAnnounce < 3s && now - lastSync < 2s;
         sharedBlock_.ptpLocked.store(fresh && stableMeasurements >= 4, std::memory_order_release);
     };
@@ -169,11 +219,22 @@ void PTPClient::loop() {
         }
         if ((lastAnnounce != SteadyClock::time_point{} && now - lastAnnounce >= 3s)
             || (lastSync != SteadyClock::time_point{} && now - lastSync >= 2s)) {
+            if (traceMeasurements && stableMeasurements != 0) {
+                std::cerr << "PTPv2 stabilite reinitialisee: annonce="
+                          << std::chrono::duration_cast<std::chrono::milliseconds>(now - lastAnnounce).count()
+                          << " ms sync="
+                          << std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSync).count()
+                          << " ms\n";
+            }
             stableMeasurements = 0;
             sharedBlock_.ptpLocked.store(false, std::memory_order_release);
+            sharedBlock_.statistics.ptpOffsetNanoseconds.store(0, std::memory_order_relaxed);
+            sharedBlock_.statistics.ptpMeanPathDelayNanoseconds.store(0, std::memory_order_relaxed);
         }
     }
     sharedBlock_.ptpLocked.store(false, std::memory_order_release);
+    sharedBlock_.statistics.ptpOffsetNanoseconds.store(0, std::memory_order_relaxed);
+    sharedBlock_.statistics.ptpMeanPathDelayNanoseconds.store(0, std::memory_order_relaxed);
 }
 
 } // namespace lxtool::aes67

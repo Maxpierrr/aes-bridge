@@ -503,6 +503,11 @@ void testPTPE2ELockAndTimeout() {
     {
     PTPClient client(config, *memory.get());
     CHECK(client.start());
+    auto ptpV1Traffic = PTPCodec::encodeAnnounce(masterIdentity, 0, 0);
+    ptpV1Traffic[1] = 0x01;
+    CHECK(generalSender.send(ptpV1Traffic) == static_cast<std::ptrdiff_t>(ptpV1Traffic.size()));
+    std::this_thread::sleep_for(30ms);
+    CHECK(memory.get()->statistics.ptpErrors.load(std::memory_order_relaxed) == 0);
     constexpr std::int64_t simulatedOffset = 2'000'000LL;
     auto systemNow = [] { return std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count(); };
@@ -538,6 +543,8 @@ void testPTPE2ELockAndTimeout() {
     CHECK(memory.get()->statistics.ptpMessages.load() >= 19);
     client.stop();
     CHECK(!memory.get()->ptpLocked.load());
+    CHECK(memory.get()->statistics.ptpOffsetNanoseconds.load() == 0);
+    CHECK(memory.get()->statistics.ptpMeanPathDelayNanoseconds.load() == 0);
     }
     memory.close();
     CHECK(SharedAudioMemory::remove());

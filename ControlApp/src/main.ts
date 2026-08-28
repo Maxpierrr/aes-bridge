@@ -117,7 +117,7 @@ function render() {
   const live = runtime();
   const engineTone = engine?.running ? "ok" : engine?.available ? "warn" : "bad";
   const issueSummary = report?.valid && state.compatibility?.supported
-    ? `<span class="validation ok">Prête à démarrer</span>`
+    ? `<span class="validation ok">Configuration valide</span>`
     : report?.valid
       ? `<span class="validation warn" title="${escapeHtml(state.compatibility?.message)}">${escapeHtml(state.compatibility?.message ?? "Configuration incomplète")}</span>`
     : `<span class="validation bad">${report?.issues.length ?? 0} erreur(s)</span>`;
@@ -153,6 +153,9 @@ function render() {
       </section>
 
       ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+      ${engine?.running && (report?.receiveFlows ?? 0) > 0 && (live?.txPackets ?? 0) > 1000 && (live?.rxPackets ?? 0) === 0
+        ? `<div class="notice warning"><strong>Aucun paquet RTP reçu.</strong> Le mode AES67 du récepteur ne crée pas un flux d’émission. Créez un flow multicast AES67 sur l’émetteur, puis recopiez ou importez son adresse RTP et son port.</div>`
+        : ""}
 
       <section class="panel network-panel">
         <div class="panel-heading"><div><p class="eyebrow">RÉSEAU</p><h2>Interface et découverte</h2></div>${issueSummary}</div>
@@ -173,9 +176,12 @@ function render() {
           ${diagnostic("RX actif", live?.rxActive ? "Oui" : "Non", live?.rxActive)}
           ${diagnostic("TX actif", live?.txActive ? "Oui" : "Non", live?.txActive)}
           ${diagnostic("Erreurs RTP/SAP", compactNumber((live?.malformedPackets ?? 0) + (live?.sapMalformedPackets ?? 0)), !((live?.malformedPackets ?? 0) + (live?.sapMalformedPackets ?? 0)))}
-          ${diagnostic("Sous-alimentations", compactNumber((live?.inputUnderruns ?? 0) + (live?.outputUnderruns ?? 0)), !((live?.inputUnderruns ?? 0) + (live?.outputUnderruns ?? 0)))}
-          ${diagnostic("Débordements ring", compactNumber(live?.ringOverruns), !(live?.ringOverruns ?? 0))}
-          ${diagnostic("Offset PTP", live ? `${live.ptpOffsetNanoseconds} ns` : "—", live?.ptpLocked)}
+          ${diagnostic("Silences injectés RX", compactNumber(live?.inputUnderruns))}
+          ${diagnostic("Silences émis TX", compactNumber(live?.outputUnderruns))}
+          ${diagnostic(live?.coreAudioRunning ? "Pression rings audio" : "Ring RX · Core Audio inactif", compactNumber(live?.ringOverruns))}
+          ${diagnostic("Messages PTPv2", compactNumber(live?.ptpMessages), (live?.ptpMessages ?? 0) > 0)}
+          ${diagnostic("Erreurs PTPv2", compactNumber(live?.ptpErrors), (live?.ptpErrors ?? 0) === 0)}
+          ${diagnostic("Synchronisation PTP", ptpDiagnostic(live), live?.ptpLocked)}
         </div>
       </section>
 
@@ -191,6 +197,14 @@ function render() {
 
 function diagnostic(label: string, value: string, healthy?: boolean) {
   return `<div><span>${label}</span><strong class="${healthy === true ? "good" : healthy === false ? "problem" : ""}">${value}</strong></div>`;
+}
+
+function ptpDiagnostic(live?: RuntimeStatus) {
+  if (!live?.ptpLocked) return "— (non verrouillé)";
+  if (Math.abs(live.ptpOffsetNanoseconds) >= 1_000_000_000) {
+    return `Verrouillé · délai ${Math.round(live.ptpMeanPathDelayNanoseconds / 1000)} µs`;
+  }
+  return `Offset ${live.ptpOffsetNanoseconds} ns`;
 }
 
 function flowPanel(direction: FlowDirection, title: string, subtitle: string) {
@@ -333,7 +347,7 @@ async function importSession(id: string) {
   if (!session) return;
   const receive = state.configuration!.flows.filter((flow) => flow.enabled && flow.direction === "receive");
   const start = Math.min(64, receive.reduce((maximum, flow) => Math.max(maximum, flow.coreAudioStartChannel + flow.channels), 1));
-  state.configuration!.flows.push({
+  const imported: FlowConfiguration = {
     id: `sap-${Date.now()}`,
     name: session.name,
     enabled: true,
@@ -349,8 +363,17 @@ async function importSession(id: string) {
     packetTimeMicroseconds: 1000,
     coreAudioStartChannel: start,
     jitterPackets: 6,
-  });
-  state.notice = `Session « ${session.name} » ajoutée aux flux reçus.`;
+  };
+  const existingPlanetFlow = state.configuration!.profileId === "planet22c"
+    ? state.configuration!.flows.find((flow) => flow.direction === "receive")
+    : undefined;
+  if (existingPlanetFlow) {
+    Object.assign(existingPlanetFlow, imported, { id: existingPlanetFlow.id, coreAudioStartChannel: 1 });
+    state.notice = `Session « ${session.name} » appliquée au flux reçu du planet. Relancez le moteur.`;
+  } else {
+    state.configuration!.flows.push(imported);
+    state.notice = `Session « ${session.name} » ajoutée aux flux reçus.`;
+  }
   await validate();
 }
 

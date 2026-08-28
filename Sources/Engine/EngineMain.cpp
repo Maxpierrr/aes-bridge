@@ -124,6 +124,7 @@ void printStatusJson(const lxtool::aes67::SharedAudioBlock& block) {
               << ",\"ptpMeanPathDelayNanoseconds\":" << block.statistics.ptpMeanPathDelayNanoseconds.load(std::memory_order_relaxed)
               << ",\"rxActive\":" << (block.rxActive.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"txActive\":" << (block.txActive.load(std::memory_order_relaxed) ? "true" : "false")
+              << ",\"coreAudioRunning\":" << (block.ioRunning.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"ptpLocked\":" << (block.ptpLocked.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"sessions\":[";
     const auto sessions = lxtool::aes67::SessionDirectory::snapshots(block);
