@@ -24,6 +24,9 @@ jobs:
       - name: Install Tauri control dependencies
         working-directory: ControlApp
         run: npm ci
+      - name: Prepare Tauri engine sidecar
+        working-directory: ControlApp
+        run: /bin/sh ./scripts/prepare-macos-sidecar.sh
       - name: Test Tauri control backend
         working-directory: ControlApp
         run: cargo test --manifest-path src-tauri/Cargo.toml --target-dir "$RUNNER_TEMP/aes-bridge-tauri-target"
