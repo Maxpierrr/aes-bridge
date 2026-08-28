@@ -26,8 +26,9 @@ bool SharedAudioMemory::open(bool createOwner) noexcept {
         return false;
     }
     const bool existingLayout = info.st_size == static_cast<off_t>(sizeof(SharedAudioBlock));
+    const bool permissionsAreShared = (info.st_mode & 0777) == 0666;
     if (createOwner) {
-        if (flock(descriptor_, LOCK_EX | LOCK_NB) != 0 || fchmod(descriptor_, 0666) != 0
+        if (flock(descriptor_, LOCK_EX | LOCK_NB) != 0 || (!permissionsAreShared && fchmod(descriptor_, 0666) != 0)
             || (!existingLayout && ftruncate(descriptor_, static_cast<off_t>(sizeof(SharedAudioBlock))) != 0)) {
             lastError_ = errno;
             close();

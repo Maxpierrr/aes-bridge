@@ -15,6 +15,21 @@ jobs:
         run: cmake --build build --parallel
       - name: Build SwiftUI manager
         run: /bin/zsh scripts/build-manager.sh "$PWD/build/aes-bridge-engine"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ControlApp/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri control dependencies
+        working-directory: ControlApp
+        run: npm ci
+      - name: Test Tauri control backend
+        working-directory: ControlApp
+        run: cargo test --manifest-path src-tauri/Cargo.toml --target-dir "$RUNNER_TEMP/aes-bridge-tauri-target"
+      - name: Build autonomous Tauri control app
+        working-directory: ControlApp
+        run: AES_BRIDGE_TAURI_TARGET_DIR="$RUNNER_TEMP/aes-bridge-tauri-target" npm run bundle:mac:dev
       - name: Validate installer artifacts
         run: /bin/zsh Installer/preflight.sh "$PWD/build" "/private/tmp/aes-bridge-dist/AES Bridge.app" --no-runtime
       - name: Test
@@ -26,6 +41,13 @@ jobs:
         with:
           name: AES-Bridge-macOS-development
           path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Tauri control app
+        uses: actions/upload-artifact@v4
+        with:
+          name: AES-Bridge-Control-macOS-development
+          path: ${{ runner.temp }}/aes-bridge-tauri-target/debug/bundle/macos/AES Bridge.app
           if-no-files-found: error
           retention-days: 14
   windows:

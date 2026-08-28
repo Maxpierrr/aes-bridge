@@ -1,0 +1,23 @@
+{
+  "name": "aes-bridge-control",
+  "private": true,
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:mac": "npm run build && /bin/sh ./scripts/prepare-macos-sidecar.sh",
+    "bundle:mac:dev": "/bin/sh ./scripts/build-macos-dev.sh",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "vite": "^6.0.3",
+    "typescript": "~5.6.2"
+  }
+}

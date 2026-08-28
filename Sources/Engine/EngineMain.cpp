@@ -17,11 +17,31 @@
 #include <string_view>
 #include <thread>
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <cerrno>
+#include <unistd.h>
+#endif
+
 namespace {
 std::atomic<bool> gStopRequested{false};
 
 void requestStop(int) {
     gStopRequested.store(true, std::memory_order_relaxed);
+}
+
+bool processIsAlive(std::uint32_t processId) noexcept {
+    if (processId == 0) return true;
+#if defined(_WIN32)
+    const HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, processId);
+    if (!process) return false;
+    const bool alive = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+    CloseHandle(process);
+    return alive;
+#else
+    return ::kill(static_cast<pid_t>(processId), 0) == 0 || errno == EPERM;
+#endif
 }
 
 void listInterfaces() {
@@ -131,7 +151,8 @@ void usage() {
               << "        [--rx-port <port>] [--tx-port <port>]\n"
               << "        [--stream-count <1..8>] [--port-stride <0..65535>]\n"
               << "        [--rx-payload-type <0..127>] [--tx-payload-type <0..127>]\n"
-              << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap] [--no-ptp]\n";
+              << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap] [--no-ptp]\n"
+              << "        [--parent-pid <pid-app-controle>]\n";
 }
 }
 
@@ -187,6 +208,7 @@ int main(int argc, char** argv) {
     config.enableSAPDiscovery = !hasOption(argc, argv, "--no-sap") && !hasOption(argc, argv, "--no-sap-discovery");
     config.enablePTP = !hasOption(argc, argv, "--no-ptp");
 
+    std::uint32_t parentProcessId = 0;
     try {
         if (const auto value = valueAfter(argc, argv, "--rx-port")) config.rxPort = parseUnsigned<std::uint16_t>(*value, 65'535);
         if (const auto value = valueAfter(argc, argv, "--tx-port")) config.txPort = parseUnsigned<std::uint16_t>(*value, 65'535);
@@ -195,6 +217,10 @@ int main(int argc, char** argv) {
         if (const auto value = valueAfter(argc, argv, "--jitter-packets")) config.jitterPackets = parseUnsigned<std::size_t>(*value, 63);
         if (const auto value = valueAfter(argc, argv, "--rx-payload-type")) config.rxPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
         if (const auto value = valueAfter(argc, argv, "--tx-payload-type")) config.txPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
+        if (const auto parent = valueAfter(argc, argv, "--parent-pid")) {
+            parentProcessId = parseUnsigned<std::uint32_t>(*parent, std::numeric_limits<std::uint32_t>::max());
+            if (parentProcessId == 0) throw std::out_of_range("PID parent nul");
+        }
         if (config.jitterPackets < 2) throw std::out_of_range("tampon anti-gigue inférieur à 2");
         if (config.streamCount < 1) throw std::out_of_range("nombre de banques inférieur à 1");
     } catch (const std::exception& error) {
@@ -230,7 +256,9 @@ int main(int argc, char** argv) {
               << " — " << config.streamCount << " banque(s), " << config.streamCount * lxtool::aes67::kAES67ChannelsPerStream << " canaux"
               << " — RX " << config.rxAddress << ':' << config.rxPort
               << " — TX " << config.txAddress << ':' << config.txPort << '\n';
-    while (!gStopRequested.load(std::memory_order_relaxed) && std::chrono::steady_clock::now() < deadline) {
+    while (!gStopRequested.load(std::memory_order_relaxed)
+        && std::chrono::steady_clock::now() < deadline
+        && processIsAlive(parentProcessId)) {
         if (const auto* block = engine.sharedBlock()) printStatus(*block);
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

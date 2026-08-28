@@ -35,7 +35,8 @@ endpoint.
 | SAP publication, discovery, deletion and expiry | Implemented; live UDP tests pass |
 | Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |
-| SwiftUI manager and engine controls | Async status polling, validated parameters, termination-aware restart and CLI lifecycle test; app compiles/signs ad hoc |
+| Tauri/Rust control app | Functional profiles, 1/2/4/8-channel routing editor, validation, persistence, interface selection, SAP sessions, live statistics and engine start/stop/restart; autonomous macOS bundle embeds the C++ engine |
+| Legacy SwiftUI manager | Still built for the current development installer while migration to the Tauri app is completed |
 | Windows network/shared-memory backend | Common live RX/TX/SAP/PTP engine plus 64-channel named mapping; full loopback and CLI lifecycle run in Windows CI |
 | PTPv2 E2E client/domain 0 | Codec, four-timestamp offset/delay, lock timeout and PTP-derived RTP timestamps implemented; simulated GM passes |
 | Raspberry Pi validation | Pending |
@@ -104,6 +105,23 @@ The runnable development app is written to
 the provenance metadata added by the SMB workspace. It is ad-hoc signed for
 local testing only. Public distribution without a Gatekeeper warning requires
 an Apple Developer ID signature and notarization.
+
+The new cross-platform control application is under `ControlApp`. It builds a
+self-contained macOS bundle with the C++ engine embedded as a Tauri sidecar:
+
+```sh
+cd ControlApp
+npm install
+cargo test --manifest-path src-tauri/Cargo.toml \
+  --target-dir /private/tmp/aes-bridge-tauri-target
+npm run bundle:mac:dev
+```
+
+The result is
+`/private/tmp/aes-bridge-tauri-target/debug/bundle/macos/AES Bridge.app`.
+The **Diagnostic local 8×8** profile exercises engine start, RX/TX loopback,
+live counters, restart and clean shutdown without sending traffic to Ethernet.
+See `ControlApp/README.md` for the current UI scope and limitations.
 
 Create the same checksum-protected development archive produced by CI:
 

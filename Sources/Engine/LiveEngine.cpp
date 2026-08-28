@@ -55,6 +55,26 @@ std::uint32_t rtpTimestampForNanoseconds(std::int64_t nanoseconds) noexcept {
     const auto samples = seconds * kSampleRate + remainder * kSampleRate / 1'000'000'000ULL;
     return static_cast<std::uint32_t>(samples);
 }
+
+void resetRuntimeState(SharedAudioBlock& block) noexcept {
+    auto& statistics = block.statistics;
+    statistics.rxPackets.store(0, std::memory_order_relaxed);
+    statistics.txPackets.store(0, std::memory_order_relaxed);
+    statistics.packetsLost.store(0, std::memory_order_relaxed);
+    statistics.malformedPackets.store(0, std::memory_order_relaxed);
+    statistics.inputUnderruns.store(0, std::memory_order_relaxed);
+    statistics.outputUnderruns.store(0, std::memory_order_relaxed);
+    statistics.ringOverruns.store(0, std::memory_order_relaxed);
+    statistics.reconnects.store(0, std::memory_order_relaxed);
+    statistics.sapMalformedPackets.store(0, std::memory_order_relaxed);
+    statistics.ptpMessages.store(0, std::memory_order_relaxed);
+    statistics.ptpErrors.store(0, std::memory_order_relaxed);
+    statistics.ptpOffsetNanoseconds.store(0, std::memory_order_relaxed);
+    statistics.ptpMeanPathDelayNanoseconds.store(0, std::memory_order_relaxed);
+    for (auto& session : block.discoveredSessions) {
+        session.active.store(false, std::memory_order_release);
+    }
+}
 }
 
 LiveEngine::LiveEngine(LiveEngineConfig config) : config_(std::move(config)) {}
@@ -75,6 +95,7 @@ bool LiveEngine::start() {
         || bankAddress(config_.txAddress, config_.streamCount - 1U).empty()
         || !sharedMemory_.open(true)) { running_.store(false); return false; }
     auto* block = sharedMemory_.get();
+    resetRuntimeState(*block);
     block->engineRunning.store(true, std::memory_order_release);
     block->ptpLocked.store(false, std::memory_order_release);
     block->activeStreamCount.store(static_cast<std::uint32_t>(config_.streamCount), std::memory_order_release);

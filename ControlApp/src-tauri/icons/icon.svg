@@ -1,0 +1,25 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="130" y1="100" x2="900" y2="930" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#26333e"/>
+      <stop offset="0.5" stop-color="#141b22"/>
+      <stop offset="1" stop-color="#0b0f13"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="250" y1="230" x2="535" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9be8f3"/>
+      <stop offset="1" stop-color="#4eb8cc"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="520" y1="250" x2="770" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd198"/>
+      <stop offset="1" stop-color="#ee9d4f"/>
+    </linearGradient>
+  </defs>
+  <rect x="72" y="72" width="880" height="880" rx="210" fill="url(#background)"/>
+  <rect x="88" y="88" width="848" height="848" rx="194" fill="none" stroke="#435361" stroke-width="18"/>
+  <path d="M202 744 392 250h103l190 494H566l-40-115H353l-39 115H202Zm183-208h109l-54-161-55 161Z" fill="url(#cyan)"/>
+  <path d="M527 250h157c90 0 145 47 145 122 0 52-26 89-72 108 58 17 89 57 89 118 0 92-64 146-172 146H527V250Zm112 199h35c34 0 53-17 53-48 0-30-19-46-53-46h-35v94Zm0 190h43c40 0 61-19 61-54 0-34-22-52-63-52h-41v106Z" fill="url(#orange)"/>
+  <path d="M170 825h684" stroke="#42515e" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="273" cy="825" r="17" fill="#62cf97"/>
+  <circle cx="751" cy="825" r="17" fill="#62c8dc"/>
+</svg>

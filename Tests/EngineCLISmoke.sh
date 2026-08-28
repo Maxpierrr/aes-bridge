@@ -5,11 +5,16 @@ set -eu
 engine="${1:?usage: EngineCLISmoke.sh <aes-bridge-engine>}"
 test_dir="$(mktemp -d "${TMPDIR:-/tmp}/aes-bridge-cli.XXXXXX")"
 engine_pid=""
+parent_pid=""
 
 cleanup() {
     if [ -n "${engine_pid}" ] && kill -0 "${engine_pid}" 2>/dev/null; then
         kill -TERM "${engine_pid}" 2>/dev/null || true
         wait "${engine_pid}" 2>/dev/null || true
+    fi
+    if [ -n "${parent_pid}" ] && kill -0 "${parent_pid}" 2>/dev/null; then
+        kill -TERM "${parent_pid}" 2>/dev/null || true
+        wait "${parent_pid}" 2>/dev/null || true
     fi
     rm -rf -- "${test_dir}"
 }
@@ -71,6 +76,42 @@ wait "${engine_pid}" 2>/dev/null || true
 engine_pid=""
 if "${engine}" --status >/dev/null 2>&1; then
     echo "crashed engine left a false active status" >&2
+    exit 1
+fi
+
+sleep 30 &
+parent_pid="$!"
+"${engine}" --run --interface-address 127.0.0.1 --profile computer-a \
+    --rx-group 127.0.0.1 --tx-group 127.0.0.1 \
+    --rx-port 55120 --tx-port 55120 --port-stride 1 \
+    --jitter-packets 3 --no-sap --no-ptp --parent-pid "${parent_pid}" --duration 10 \
+    >"${test_dir}/parent-watch.log" 2>&1 &
+engine_pid="$!"
+
+attempt=0
+while [ "${attempt}" -lt 40 ]; do
+    if "${engine}" --status >/dev/null 2>&1; then break; fi
+    attempt=$((attempt + 1))
+    sleep 0.05
+done
+[ "${attempt}" -lt 40 ] || { echo "parent-watch engine did not become ready" >&2; exit 1; }
+kill -TERM "${parent_pid}"
+wait "${parent_pid}" 2>/dev/null || true
+parent_pid=""
+
+attempt=0
+while [ "${attempt}" -lt 60 ] && kill -0 "${engine_pid}" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    sleep 0.05
+done
+if kill -0 "${engine_pid}" 2>/dev/null; then
+    echo "engine did not stop after its parent exited" >&2
+    exit 1
+fi
+wait "${engine_pid}" 2>/dev/null || true
+engine_pid=""
+if "${engine}" --status >/dev/null 2>&1; then
+    echo "parent-watch engine left an active status" >&2
     exit 1
 fi
 
