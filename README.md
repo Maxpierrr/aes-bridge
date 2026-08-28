@@ -1,7 +1,7 @@
 # AES Bridge for macOS
 
 GPLv3 AES67 bridge and experimental 64-input/64-output virtual Core Audio
-device. Network transport is deliberately split into eight banks of eight
+device. Network transport uses one to eight uniform banks of 1, 2, 4 or 8
 channels, each using L24, 48 kHz and 48 frames per packet (1 ms). The
 LXToolPi/RASPIAUDIO profile activates bank 1 only; computer-to-computer profiles
 activate all eight. The Windows backend now runs the same RTP/SAP/PTP engine
@@ -36,6 +36,7 @@ endpoint.
 | Session selection, payload type and source filter | Implemented in engine and manager |
 | `AES Bridge` HAL device, 64×64/48 kHz | Bundle properties and a full HAL/eight-bank RTP/HAL loopback pass automatically; not installed |
 | Tauri/Rust control app | Functional profiles, 1/2/4/8-channel routing editor, validation, persistence, interface selection, SAP sessions, live statistics and engine start/stop/restart; autonomous macOS bundle embeds the C++ engine |
+| ESI planet 22c | Runnable 2×2 profile, 288-byte L24 payload and Core Audio channel mapping covered by automated tests; physical Dante/AES67 validation pending |
 | Legacy SwiftUI manager | Still built for the current development installer while migration to the Tauri app is completed |
 | Windows network/shared-memory backend | Common live RX/TX/SAP/PTP engine plus 64-channel named mapping; full loopback and CLI lifecycle run in Windows CI |
 | PTPv2 E2E client/domain 0 | Codec, four-timestamp offset/delay, lock timeout and PTP-derived RTP timestamps implemented; simulated GM passes |

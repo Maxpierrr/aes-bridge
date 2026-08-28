@@ -87,11 +87,13 @@ discipline is still pending, so this checkpoint is not described as production-r
 ## Current implementation checkpoint
 
 The engine now performs bounded SAP discovery, validates discovered SDP against
-the fixed 8-channel L24/48 kHz/1 ms/domain-0 profile, expires stale sessions and
+the 1/2/4/8-channel L24/48 kHz/1 ms/domain-0 profile, expires stale sessions and
 publishes deletion announcements. RX supports source-specific multicast and
 recovers from RTP SSRC changes without touching the Core Audio callback path.
-The virtual endpoint remains fixed at 64×64; each validated 8-channel session
-maps to one immutable bank so that no RTP packet exceeds the Ethernet MTU.
+The virtual endpoint remains fixed at 64×64; each configured uniform session
+maps to an immutable 1/2/4/8-channel range so that no RTP packet exceeds the
+Ethernet MTU. The two-channel path targets ESI planet 22c interoperability and
+still requires physical validation.
 
 The engine now contains an IEEE 1588-2008/domain-0 E2E client. It parses
 Announce, Sync, Follow_Up and Delay_Resp, emits Delay_Req, calculates offset and

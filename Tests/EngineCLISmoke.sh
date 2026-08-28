@@ -20,6 +20,32 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+"${engine}" --run --interface-address 127.0.0.1 --profile raspberry \
+    --rx-group 127.0.0.1 --tx-group 127.0.0.1 \
+    --rx-port 55118 --tx-port 55118 --channels-per-stream 2 \
+    --core-audio-start-channel 1 --jitter-packets 3 --no-sap --no-ptp --duration 5 \
+    >"${test_dir}/planet-stereo.log" 2>&1 &
+engine_pid="$!"
+
+planet_status=""
+attempt=0
+while [ "${attempt}" -lt 40 ]; do
+    if candidate="$("${engine}" --status 2>/dev/null)"; then
+        case "${candidate}" in
+            *'"engineRunning":true'*'"channelsPerStream":2'*'"activeStreamCount":1'*)
+                planet_status="${candidate}"
+                break
+                ;;
+        esac
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.05
+done
+[ -n "${planet_status}" ] || { cat "${test_dir}/planet-stereo.log" >&2; echo "stereo planet engine status did not become ready" >&2; exit 1; }
+kill -TERM "${engine_pid}"
+wait "${engine_pid}"
+engine_pid=""
+
 "${engine}" --run --interface-address 127.0.0.1 --profile computer-a \
     --rx-group 127.0.0.1 --tx-group 127.0.0.1 \
     --rx-port 55120 --tx-port 55120 --port-stride 1 \

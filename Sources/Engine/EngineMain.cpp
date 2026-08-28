@@ -108,6 +108,7 @@ void printStatus(const lxtool::aes67::SharedAudioBlock& block) {
 void printStatusJson(const lxtool::aes67::SharedAudioBlock& block) {
     std::cout << "{\"engineRunning\":" << (block.engineRunning.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"virtualChannels\":" << block.channels
+              << ",\"channelsPerStream\":" << block.channelsPerStream
               << ",\"activeStreamCount\":" << block.activeStreamCount.load(std::memory_order_relaxed)
               << ",\"rxPackets\":" << block.statistics.rxPackets.load(std::memory_order_relaxed)
               << ",\"txPackets\":" << block.statistics.txPackets.load(std::memory_order_relaxed)
@@ -156,6 +157,7 @@ void usage() {
               << "        [--rx-group <IPv4>] [--rx-source <IPv4>] [--tx-group <IPv4>]\n"
               << "        [--rx-port <port>] [--tx-port <port>]\n"
               << "        [--stream-count <1..8>] [--port-stride <0..65535>]\n"
+              << "        [--channels-per-stream <1|2|4|8>] [--core-audio-start-channel <1..64>]\n"
               << "        [--rx-payload-type <0..127>] [--tx-payload-type <0..127>]\n"
               << "        [--jitter-packets <2..63>] [--duration <secondes>] [--no-sap] [--no-ptp]\n"
               << "        [--parent-pid <pid-app-controle>]\n";
@@ -219,6 +221,8 @@ int main(int argc, char** argv) {
         if (const auto value = valueAfter(argc, argv, "--rx-port")) config.rxPort = parseUnsigned<std::uint16_t>(*value, 65'535);
         if (const auto value = valueAfter(argc, argv, "--tx-port")) config.txPort = parseUnsigned<std::uint16_t>(*value, 65'535);
         if (const auto value = valueAfter(argc, argv, "--stream-count")) config.streamCount = parseUnsigned<std::size_t>(*value, lxtool::aes67::kStreamBankCount);
+        if (const auto value = valueAfter(argc, argv, "--channels-per-stream")) config.channelsPerStream = parseUnsigned<std::size_t>(*value, lxtool::aes67::kAES67ChannelsPerStream);
+        if (const auto value = valueAfter(argc, argv, "--core-audio-start-channel")) config.coreAudioStartChannel = parseUnsigned<std::size_t>(*value, lxtool::aes67::kVirtualChannels);
         if (const auto value = valueAfter(argc, argv, "--port-stride")) config.portStride = parseUnsigned<std::uint16_t>(*value, 65'535);
         if (const auto value = valueAfter(argc, argv, "--jitter-packets")) config.jitterPackets = parseUnsigned<std::size_t>(*value, 63);
         if (const auto value = valueAfter(argc, argv, "--rx-payload-type")) config.rxPayloadType = parseUnsigned<std::uint8_t>(*value, 127);
@@ -229,6 +233,11 @@ int main(int argc, char** argv) {
         }
         if (config.jitterPackets < 2) throw std::out_of_range("tampon anti-gigue inférieur à 2");
         if (config.streamCount < 1) throw std::out_of_range("nombre de banques inférieur à 1");
+        if (!lxtool::aes67::supportedAES67ChannelCount(config.channelsPerStream)) throw std::out_of_range("nombre de canaux AES67 non pris en charge");
+        if (config.coreAudioStartChannel < 1
+            || config.coreAudioStartChannel - 1U + config.streamCount * config.channelsPerStream > lxtool::aes67::kVirtualChannels) {
+            throw std::out_of_range("routage Core Audio hors plage");
+        }
     } catch (const std::exception& error) {
         std::cerr << "Paramètre numérique invalide: " << error.what() << '\n';
         return 2;
@@ -259,7 +268,7 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "AES Bridge démarré sur " << engine.interfaceAddress()
-              << " — " << config.streamCount << " banque(s), " << config.streamCount * lxtool::aes67::kAES67ChannelsPerStream << " canaux"
+              << " — " << config.streamCount << " flux, " << config.streamCount * config.channelsPerStream << " canaux"
               << " — RX " << config.rxAddress << ':' << config.rxPort
               << " — TX " << config.txAddress << ':' << config.txPort << '\n';
     while (!gStopRequested.load(std::memory_order_relaxed)

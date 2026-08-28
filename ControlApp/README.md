@@ -16,10 +16,15 @@ traitement audio ou réseau dans l’interface graphique.
 - affichage des sessions SAP/SDP découvertes et import dans le routage RX ;
 - profil de diagnostic 8×8 en boucle locale, sans trafic Ethernet.
 
-Le moteur actuellement livré accepte au lancement une à huit banques
-consécutives de huit canaux. L’interface prépare déjà les flux 1/2/4 canaux,
-mais leur lancement restera refusé avec un message explicite tant que le
-moteur C++ multi-flux variable n’aura pas été intégré.
+Le moteur accepte une à huit banques uniformes et consécutives de 1, 2, 4 ou
+8 canaux. Le profil **planet 22c** lance un flux stéréo dans chaque sens et le
+mappe sur Core Audio 1–2. Le profil quatre planet utilise quatre flux stéréo
+consécutifs et les mappe sur Core Audio 1–8. Les adresses, ports et payloads
+doivent correspondre aux flows réellement créés dans Dante Controller.
+
+Voir [`../Docs/PLANET22C_TEST.md`](../Docs/PLANET22C_TEST.md) avant un essai
+matériel. AES Bridge ne configure pas le planet lui-même et ne remplace pas
+Dante Controller pour activer son mode AES67.
 
 ## Développement macOS
 

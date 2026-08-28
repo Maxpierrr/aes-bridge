@@ -179,7 +179,7 @@ pub fn profiles() -> Vec<ConfigurationProfile> {
             format!("planet-{}-rx", index + 1),
             format!("planet {} IN 1–2", index + 1),
             FlowDirection::Receive,
-            format!("239.69.83.{}", 82 + index * 2),
+            format!("239.69.83.{}", 82 + index),
             2,
             first_channel,
         ));
@@ -187,7 +187,7 @@ pub fn profiles() -> Vec<ConfigurationProfile> {
             format!("planet-{}-tx", index + 1),
             format!("planet {} OUT 1–2", index + 1),
             FlowDirection::Transmit,
-            format!("239.69.83.{}", 83 + index * 2),
+            format!("239.69.83.{}", 90 + index),
             2,
             first_channel,
         ));

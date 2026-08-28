@@ -270,6 +270,57 @@ void testLiveEngineLoopbackAndChannelOrder() {
     CHECK(lxtool::aes67::SharedAudioMemory::remove());
 }
 
+void testStereoPlanetLoopbackAndCoreAudioMapping() {
+    using namespace std::chrono_literals;
+    using namespace lxtool::aes67;
+    CHECK(SharedAudioMemory::remove());
+    LiveEngineConfig config;
+    config.interfaceAddress = "127.0.0.1";
+    config.rxAddress = "127.0.0.1";
+    config.txAddress = "127.0.0.1";
+    config.rxPort = 54679;
+    config.txPort = 54679;
+    config.channelsPerStream = 2;
+    config.coreAudioStartChannel = 9;
+    config.jitterPackets = 3;
+    config.enableSAPPublication = false;
+    config.enableSAPDiscovery = false;
+    config.enablePTP = false;
+
+    LiveEngine engine(config);
+    CHECK(engine.start());
+    auto* block = engine.sharedBlock();
+    if (!block) return;
+    block->ioRunning.store(true);
+    constexpr std::size_t injectedFrames = kFramesPerPacket * 24;
+    std::array<float, injectedFrames> left{};
+    std::array<float, injectedFrames> right{};
+    left.fill(0.22F);
+    right.fill(-0.44F);
+    CHECK(block->coreAudioToNetwork[8].write(left) == left.size());
+    CHECK(block->coreAudioToNetwork[9].write(right) == right.size());
+    CHECK(waitUntil([&] {
+        return block->statistics.txPackets.load() >= 24
+            && block->statistics.rxPackets.load() >= 24
+            && block->networkToCoreAudio[8].available() >= injectedFrames
+            && block->networkToCoreAudio[9].available() >= injectedFrames;
+    }, 1s));
+
+    std::array<float, 4096> returnedLeft{};
+    std::array<float, 4096> returnedRight{};
+    const auto leftCount = block->networkToCoreAudio[8].read(returnedLeft);
+    const auto rightCount = block->networkToCoreAudio[9].read(returnedRight);
+    CHECK(leftCount >= injectedFrames && rightCount >= injectedFrames);
+    CHECK(std::find_if(returnedLeft.begin(), returnedLeft.begin() + static_cast<std::ptrdiff_t>(leftCount),
+        [](float value) { return std::abs(value - 0.22F) < 0.000001F; }) != returnedLeft.begin() + static_cast<std::ptrdiff_t>(leftCount));
+    CHECK(std::find_if(returnedRight.begin(), returnedRight.begin() + static_cast<std::ptrdiff_t>(rightCount),
+        [](float value) { return std::abs(value + 0.44F) < 0.000001F; }) != returnedRight.begin() + static_cast<std::ptrdiff_t>(rightCount));
+    CHECK(block->networkToCoreAudio[0].available() == 0);
+    block->ioRunning.store(false);
+    engine.stop();
+    CHECK(SharedAudioMemory::remove());
+}
+
 void testLiveSAPDiscoveryAndDeletion() {
     using namespace std::chrono_literals;
     CHECK(lxtool::aes67::SharedAudioMemory::remove());
@@ -544,7 +595,8 @@ void testBankTimestampAlignment() {
 
 int main() {
     testL24(); testRTP(); testSDP(); testSAP(); testChannelOrder(); testJitterAndLoss(); testRingAndReconnect(); testUDPLoopback();
-    testSharedAudioMemory(); testLiveEngineLoopbackAndChannelOrder(); testLiveSAPDiscoveryAndDeletion(); testRTPSourceRestartRecovery();
+    testSharedAudioMemory(); testLiveEngineLoopbackAndChannelOrder(); testStereoPlanetLoopbackAndCoreAudioMapping();
+    testLiveSAPDiscoveryAndDeletion(); testRTPSourceRestartRecovery();
     testEightBankSAPPublication();
     testPTPE2ELockAndTimeout();
     testBankTimestampAlignment();

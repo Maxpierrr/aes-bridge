@@ -48,6 +48,32 @@ void testProtocolRoundTrip() {
     for (std::size_t channel = 0; channel < kChannels; ++channel) CHECK(std::abs(output[channel] - input[channel]) < 0.000001F);
 }
 
+void testStereoPlanetPayloadAndSDP() {
+    using namespace lxtool::aes67;
+    constexpr std::size_t channels = 2;
+    std::array<float, kFramesPerPacket * channels> input{};
+    for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) {
+        input[frame * channels] = 0.25F;
+        input[frame * channels + 1] = -0.5F;
+    }
+    std::array<std::uint8_t, payloadBytesForChannels(channels)> payload{};
+    std::array<float, kFramesPerPacket * channels> output{};
+    CHECK(L24Codec::encode(input, payload));
+    CHECK(payload.size() == 288);
+    CHECK(L24Codec::decode(payload, output));
+    CHECK(std::abs(output[0] - 0.25F) < 0.000001F);
+    CHECK(std::abs(output[1] + 0.5F) < 0.000001F);
+
+    SessionDescription session;
+    session.name = "AES-Bridge-planet22c";
+    session.originAddress = "192.168.50.2";
+    session.multicastAddress = "239.69.83.82";
+    session.channels = channels;
+    const auto parsed = SDP::parse(SDP::generate(session));
+    CHECK(parsed.has_value() && parsed->channels == channels);
+    CHECK(parsed.has_value() && SDP::validateLXToolProfile(*parsed).empty());
+}
+
 void testSDPAndSAP() {
     using namespace lxtool::aes67;
     SessionDescription session;
@@ -123,6 +149,7 @@ void testPTPCodecAndE2ECalculation() {
 int main() {
     testIPv4();
     testProtocolRoundTrip();
+    testStereoPlanetPayloadAndSDP();
     testSDPAndSAP();
     testLockFreeContainers();
     test64ChannelOrder();

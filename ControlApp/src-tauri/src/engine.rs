@@ -295,6 +295,11 @@ fn arguments_for(configuration: &BridgeConfiguration) -> Result<Vec<String>, Str
     }
     validate_banks(&receive, "RX")?;
     validate_banks(&transmit, "TX")?;
+    if receive[0].channels != transmit[0].channels
+        || receive[0].core_audio_start_channel != transmit[0].core_audio_start_channel
+    {
+        return Err("Le moteur actuel exige le même nombre de canaux et le même départ Core Audio en RX et TX.".into());
+    }
     let rx_stride = port_stride(&receive)?;
     let tx_stride = port_stride(&transmit)?;
     if rx_stride != tx_stride {
@@ -331,6 +336,10 @@ fn arguments_for(configuration: &BridgeConfiguration) -> Result<Vec<String>, Str
         "raspberry".into(),
         "--stream-count".into(),
         receive.len().to_string(),
+        "--channels-per-stream".into(),
+        receive[0].channels.to_string(),
+        "--core-audio-start-channel".into(),
+        receive[0].core_audio_start_channel.to_string(),
         "--rx-group".into(),
         receive[0].multicast_address.clone(),
         "--tx-group".into(),
@@ -376,12 +385,14 @@ fn enabled_flows(
 
 fn validate_banks(flows: &[&FlowConfiguration], label: &str) -> Result<(), String> {
     let payload_type = flows[0].payload_type;
+    let channels = flows[0].channels;
+    let first_core_audio_channel = flows[0].core_audio_start_channel;
     let base_address = address_number(&flows[0].multicast_address)?;
     for (index, flow) in flows.iter().enumerate() {
-        let expected_channel = index as u16 * 8 + 1;
-        if flow.channels != 8 || flow.core_audio_start_channel != expected_channel {
+        let expected_channel = first_core_audio_channel + index as u16 * channels;
+        if flow.channels != channels || flow.core_audio_start_channel != expected_channel {
             return Err(format!(
-                "Le moteur actuel ne peut lancer que des banques {label} de 8 canaux consécutifs. Le support 1/2/4 canaux est la prochaine étape du moteur."
+                "Les flux {label} doivent avoir la même largeur et occuper des canaux Core Audio consécutifs."
             ));
         }
         if flow.payload_type != payload_type {
@@ -389,7 +400,10 @@ fn validate_banks(flows: &[&FlowConfiguration], label: &str) -> Result<(), Strin
                 "Tous les flux {label} doivent partager le même payload RTP."
             ));
         }
-        if address_number(&flow.multicast_address)? != base_address + index as u32 {
+        let expected_address = base_address
+            .checked_add(index as u32)
+            .ok_or_else(|| format!("Plage multicast {label} hors IPv4."))?;
+        if address_number(&flow.multicast_address)? != expected_address {
             return Err(format!(
                 "Les adresses multicast {label} doivent être consécutives."
             ));
@@ -430,8 +444,8 @@ mod tests {
     use crate::model::profiles;
 
     #[test]
-    fn raspberry_and_computer_profiles_map_to_current_engine() {
-        for profile_id in ["raspberry", "computer-a"] {
+    fn bundled_uniform_profiles_map_to_current_engine() {
+        for profile_id in ["raspberry", "computer-a", "planet22c-x4"] {
             let mut configuration = profiles()
                 .into_iter()
                 .find(|profile| profile.id == profile_id)
@@ -443,15 +457,24 @@ mod tests {
     }
 
     #[test]
-    fn stereo_profile_is_rejected_until_multiflow_engine_lands() {
+    fn stereo_planet_profile_maps_to_two_channel_engine() {
         let mut configuration = profiles()
             .into_iter()
             .find(|profile| profile.id == "planet22c")
             .unwrap()
             .configuration;
         configuration.interface_address = "127.0.0.1".into();
-        let error = arguments_for(&configuration).unwrap_err();
-        assert!(error.contains("8 canaux"));
+        let arguments = arguments_for(&configuration).unwrap();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--channels-per-stream", "2"])
+        );
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--core-audio-start-channel", "1"])
+        );
     }
 
     #[test]

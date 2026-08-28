@@ -8,6 +8,7 @@ target_dir="${AES_BRIDGE_TAURI_TARGET_DIR:-/private/tmp/aes-bridge-tauri-target}
 app="${target_dir}/debug/bundle/macos/AES Bridge.app"
 
 cd "${control_dir}"
+/bin/sh "${script_dir}/prepare-macos-sidecar.sh"
 CARGO_TARGET_DIR="${target_dir}" npm run tauri build -- --debug --bundles app --no-sign
 /usr/bin/xattr -cr "${app}"
 /usr/bin/codesign --force --deep --sign - "${app}"

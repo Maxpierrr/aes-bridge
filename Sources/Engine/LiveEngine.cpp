@@ -87,7 +87,12 @@ std::string LiveEngine::interfaceIPv4(const std::string& name) {
 bool LiveEngine::start() {
     if (running_.exchange(true)) return false;
     if (config_.interfaceAddress.empty()) config_.interfaceAddress = interfaceIPv4(config_.interfaceName);
-    if (config_.streamCount == 0 || config_.streamCount > kStreamBankCount) { running_.store(false); return false; }
+    if (config_.streamCount == 0 || config_.streamCount > kStreamBankCount
+        || !supportedAES67ChannelCount(config_.channelsPerStream)
+        || config_.coreAudioStartChannel == 0
+        || config_.coreAudioStartChannel - 1U + config_.streamCount * config_.channelsPerStream > kVirtualChannels) {
+        running_.store(false); return false;
+    }
     const auto lastPortOffset = static_cast<std::size_t>(config_.portStride) * (config_.streamCount - 1U);
     if (config_.interfaceAddress.empty()
         || lastPortOffset > UINT16_MAX - config_.rxPort || lastPortOffset > UINT16_MAX - config_.txPort
@@ -96,6 +101,7 @@ bool LiveEngine::start() {
         || !sharedMemory_.open(true)) { running_.store(false); return false; }
     auto* block = sharedMemory_.get();
     resetRuntimeState(*block);
+    block->channelsPerStream = static_cast<std::uint32_t>(config_.channelsPerStream);
     block->engineRunning.store(true, std::memory_order_release);
     block->ptpLocked.store(false, std::memory_order_release);
     block->activeStreamCount.store(static_cast<std::uint32_t>(config_.streamCount), std::memory_order_release);
@@ -181,6 +187,7 @@ void LiveEngine::receiveLoop(std::size_t bank, StreamRuntime& runtime) {
     std::array<std::uint8_t, 1600> wire{};
     const auto address = bankAddress(config_.rxAddress, bank);
     const auto port = bankPort(config_.rxPort, config_.portStride, bank);
+    const auto payloadBytes = payloadBytesForChannels(config_.channelsPerStream);
     while (running_) {
         UDPSocket socket;
         if (!socket.openReceiver(address, port, config_.interfaceAddress, config_.rxSourceAddress)) {
@@ -201,7 +208,7 @@ void LiveEngine::receiveLoop(std::size_t bank, StreamRuntime& runtime) {
             if (count < 0) break;
             RTPPacket packet;
             if (!RTPCodec::decode(std::span(wire).first(static_cast<std::size_t>(count)), packet)
-                || packet.payloadType != config_.rxPayloadType || packet.payload.size() != kPayloadBytes) {
+                || packet.payloadType != config_.rxPayloadType || packet.payload.size() != payloadBytes) {
                 block->statistics.malformedPackets.fetch_add(1); continue;
             }
             const auto arrival = std::chrono::steady_clock::now();
@@ -236,6 +243,8 @@ void LiveEngine::consumeLoop(std::size_t bank, StreamRuntime& runtime) {
     std::array<std::uint8_t, 1200> payload{};
     std::array<float, kFramesPerPacket * kChannels> interleaved{};
     std::array<float, kFramesPerPacket> channel{};
+    const auto payloadBytes = payloadBytesForChannels(config_.channelsPerStream);
+    const auto sampleCount = kFramesPerPacket * config_.channelsPerStream;
     auto next = consumeEpoch_;
     while (running_) {
         if (runtime.jitterResetRequested.exchange(false, std::memory_order_acq_rel)) runtime.jitter.reset();
@@ -251,10 +260,10 @@ void LiveEngine::consumeLoop(std::size_t bank, StreamRuntime& runtime) {
             if (runtime.jitter.ready() && runtime.jitter.buffered() > 0) { runtime.jitter.skipMissing(); block->statistics.packetsLost.fetch_add(1); }
             continue;
         }
-        if (length != kPayloadBytes || !L24Codec::decode(std::span(payload).first(length), interleaved)) { block->statistics.malformedPackets.fetch_add(1); continue; }
-        for (std::size_t ch = 0; ch < kChannels; ++ch) {
-            for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) channel[frame] = interleaved[frame * kChannels + ch];
-            const auto virtualChannel = bank * kAES67ChannelsPerStream + ch;
+        if (length != payloadBytes || !L24Codec::decode(std::span(payload).first(length), std::span(interleaved).first(sampleCount))) { block->statistics.malformedPackets.fetch_add(1); continue; }
+        for (std::size_t ch = 0; ch < config_.channelsPerStream; ++ch) {
+            for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) channel[frame] = interleaved[frame * config_.channelsPerStream + ch];
+            const auto virtualChannel = config_.coreAudioStartChannel - 1U + bank * config_.channelsPerStream + ch;
             if (block->networkToCoreAudio[virtualChannel].write(channel) != channel.size()) block->statistics.ringOverruns.fetch_add(1);
         }
     }
@@ -267,7 +276,9 @@ void LiveEngine::transmitLoop(std::size_t bank, StreamRuntime& runtime) {
     std::array<float, kFramesPerPacket> channel{};
     std::array<std::uint8_t, RTPCodec::kFixedHeaderBytes + kPayloadBytes> wire{};
     RTPPacket packet; packet.payloadType = config_.txPayloadType;
-    packet.ssrc = 0x41455342U + static_cast<std::uint32_t>(bank); packet.payload.resize(kPayloadBytes);
+    const auto payloadBytes = payloadBytesForChannels(config_.channelsPerStream);
+    const auto sampleCount = kFramesPerPacket * config_.channelsPerStream;
+    packet.ssrc = 0x41455342U + static_cast<std::uint32_t>(bank); packet.payload.resize(payloadBytes);
     const auto address = bankAddress(config_.txAddress, bank);
     const auto port = bankPort(config_.txPort, config_.portStride, bank);
     auto nextDeadline = [this] {
@@ -298,14 +309,14 @@ void LiveEngine::transmitLoop(std::size_t bank, StreamRuntime& runtime) {
             std::this_thread::sleep_until(next);
             if (std::chrono::steady_clock::now() - next > 10ms) next = nextDeadline();
             bool underrun = false;
-            for (std::size_t ch = 0; ch < kChannels; ++ch) {
-                const auto virtualChannel = bank * kAES67ChannelsPerStream + ch;
+            for (std::size_t ch = 0; ch < config_.channelsPerStream; ++ch) {
+                const auto virtualChannel = config_.coreAudioStartChannel - 1U + bank * config_.channelsPerStream + ch;
                 const auto count = block->coreAudioToNetwork[virtualChannel].read(channel);
                 if (count < channel.size()) { std::fill(channel.begin() + static_cast<std::ptrdiff_t>(count), channel.end(), 0.0F); underrun = true; }
-                for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) interleaved[frame * kChannels + ch] = channel[frame];
+                for (std::size_t frame = 0; frame < kFramesPerPacket; ++frame) interleaved[frame * config_.channelsPerStream + ch] = channel[frame];
             }
             if (underrun && block->ioRunning.load()) block->statistics.outputUnderruns.fetch_add(1);
-            L24Codec::encode(interleaved, packet.payload);
+            L24Codec::encode(std::span(interleaved).first(sampleCount), packet.payload);
             packet.sequence = static_cast<std::uint16_t>(packet.sequence + 1U);
             const auto scheduledNanoseconds = transmitSystemEpochNanoseconds_
                 + std::chrono::duration_cast<std::chrono::nanoseconds>(next - transmitEpoch_).count();
@@ -328,8 +339,8 @@ void LiveEngine::sapPublishLoop() {
     announcements.reserve(config_.streamCount);
     encodedAnnouncements.reserve(config_.streamCount);
     for (std::size_t bank = 0; bank < config_.streamCount; ++bank) {
-        const auto firstChannel = bank * kAES67ChannelsPerStream + 1U;
-        const auto lastChannel = firstChannel + kAES67ChannelsPerStream - 1U;
+        const auto firstChannel = config_.coreAudioStartChannel + bank * config_.channelsPerStream;
+        const auto lastChannel = firstChannel + config_.channelsPerStream - 1U;
         SessionDescription session;
         session.name = "AES-Bridge-Outputs-" + std::to_string(firstChannel) + '-' + std::to_string(lastChannel);
         session.originAddress = config_.interfaceAddress;
@@ -337,6 +348,7 @@ void LiveEngine::sapPublishLoop() {
         session.multicastAddress = bankAddress(config_.txAddress, bank);
         session.port = bankPort(config_.txPort, config_.portStride, bank);
         session.payloadType = config_.txPayloadType;
+        session.channels = static_cast<std::uint16_t>(config_.channelsPerStream);
         announcements.push_back(SAPMessage{false, 0, config_.interfaceAddress, "application/sdp", SDP::generate(session)});
         encodedAnnouncements.push_back(SAP::encode(announcements.back()));
     }

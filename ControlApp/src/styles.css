@@ -109,7 +109,7 @@ input:focus, select:focus { border-color: #5eb9ca; }
 .toggle input:checked + i::after { left: 17px; background: #89e0ef; }
 .toggle.compact { align-self: center; }
 
-.flow-head, .flow-row { display: grid; grid-template-columns: 34px minmax(130px, 1.15fr) minmax(205px, 1.45fr) 76px 127px 74px 29px; gap: 9px; align-items: center; }
+.flow-head, .flow-row { display: grid; grid-template-columns: 34px minmax(130px, 1.1fr) minmax(190px, 1.35fr) 112px 117px 68px 29px; gap: 8px; align-items: center; }
 .flow-head { padding: 8px 15px; border-bottom: 1px solid #242c34; color: #75808a; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .flow-row { position: relative; min-height: 58px; padding: 9px 15px; border-bottom: 1px solid #242c34; }
 .flow-row:last-child { border-bottom: 0; }
@@ -119,6 +119,10 @@ input:focus, select:focus { border-color: #5eb9ca; }
 .address { display: flex; align-items: center; gap: 5px; }
 .address input:first-child { min-width: 118px; }
 .address .port { width: 68px; }
+.format { display: flex; align-items: center; gap: 5px; }
+.format select { min-width: 58px; }
+.format label { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 8px; }
+.format label input { width: 43px; padding-inline: 5px; }
 .route { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 9px; white-space: nowrap; }
 .route input { width: 48px; }
 .route span { color: #aab5bd; }
@@ -152,5 +156,5 @@ input:focus, select:focus { border-color: #5eb9ca; }
   .workspace { padding-inline: 20px; }
   .network-grid { grid-template-columns: 1fr 1fr; }
   .diagnostic-grid { grid-template-columns: repeat(3, 1fr); }
-  .flow-head, .flow-row { grid-template-columns: 30px minmax(120px, 1fr) minmax(185px, 1.3fr) 70px 112px 68px 29px; gap: 6px; }
+  .flow-head, .flow-row { grid-template-columns: 30px minmax(115px, 1fr) minmax(170px, 1.25fr) 105px 105px 62px 29px; gap: 6px; }
 }

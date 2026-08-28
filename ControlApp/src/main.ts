@@ -101,7 +101,7 @@ function flowRow(flow: FlowConfiguration) {
     </label>
     <input class="flow-name" data-field="name" value="${escapeHtml(flow.name)}" aria-label="Nom du flux" />
     <div class="address"><input data-field="multicastAddress" value="${escapeHtml(flow.multicastAddress)}" aria-label="Adresse multicast"/><span>:</span><input class="port" type="number" data-field="port" value="${flow.port}" aria-label="Port"/></div>
-    <select data-field="channels" aria-label="Nombre de canaux">${[1, 2, 4, 8].map((count) => `<option value="${count}" ${count === flow.channels ? "selected" : ""}>${count} ch</option>`).join("")}</select>
+    <div class="format"><select data-field="channels" aria-label="Nombre de canaux">${[1, 2, 4, 8].map((count) => `<option value="${count}" ${count === flow.channels ? "selected" : ""}>${count} ch</option>`).join("")}</select><label>PT<input type="number" min="0" max="127" data-field="payloadType" value="${flow.payloadType}" aria-label="Payload RTP"/></label></div>
     <label class="route">Canal <input type="number" min="1" max="64" data-field="coreAudioStartChannel" value="${flow.coreAudioStartChannel}"/> <span>→ ${end}</span></label>
     <label class="jitter"><input type="number" min="2" max="63" data-field="jitterPackets" value="${flow.jitterPackets}"/> ms</label>
     <button class="icon danger" data-action="delete-flow" title="Supprimer">×</button>
@@ -119,7 +119,7 @@ function render() {
   const issueSummary = report?.valid && state.compatibility?.supported
     ? `<span class="validation ok">Prête à démarrer</span>`
     : report?.valid
-      ? `<span class="validation warn" title="${escapeHtml(state.compatibility?.message)}">Configuration enregistrable · moteur non compatible</span>`
+      ? `<span class="validation warn" title="${escapeHtml(state.compatibility?.message)}">${escapeHtml(state.compatibility?.message ?? "Configuration incomplète")}</span>`
     : `<span class="validation bad">${report?.issues.length ?? 0} erreur(s)</span>`;
 
   app.className = "app-shell";

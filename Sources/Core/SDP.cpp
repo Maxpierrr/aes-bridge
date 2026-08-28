@@ -120,7 +120,7 @@ std::vector<std::string> SDP::validateLXToolProfile(const SessionDescription& s)
     std::vector<std::string> errors;
     if (s.encoding != "L24") errors.emplace_back("encodage différent de L24");
     if (s.sampleRate != kSampleRate) errors.emplace_back("fréquence différente de 48000 Hz");
-    if (s.channels != kChannels) errors.emplace_back("nombre de canaux différent de 8");
+    if (!supportedAES67ChannelCount(s.channels)) errors.emplace_back("nombre de canaux différent de 1, 2, 4 ou 8");
     if (s.packetTimeMilliseconds != 1 || s.framesPerPacket != kFramesPerPacket) errors.emplace_back("paquet différent de 1 ms / 48 trames");
     if (s.ptpDomain != kPTPDomain) errors.emplace_back("domaine PTP différent de 0");
     if (!validIPv4(s.multicastAddress, true)) errors.emplace_back("adresse RTP non multicast");

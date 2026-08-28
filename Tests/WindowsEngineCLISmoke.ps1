@@ -12,6 +12,8 @@ $arguments = @(
     "--tx-group", "127.0.0.1",
     "--rx-port", "54900",
     "--tx-port", "54901",
+    "--channels-per-stream", "2",
+    "--core-audio-start-channel", "1",
     "--duration", "3",
     "--no-sap",
     "--no-ptp"
@@ -33,13 +35,13 @@ try {
         $json = & $Engine --status 2>$null
         if ($LASTEXITCODE -eq 0) {
             $candidate = $json | ConvertFrom-Json
-            if ($candidate.engineRunning -and $candidate.virtualChannels -eq 64) {
+            if ($candidate.engineRunning -and $candidate.virtualChannels -eq 64 -and $candidate.channelsPerStream -eq 2) {
                 $status = $candidate
             }
         }
     }
     if ($null -eq $status) {
-        throw "Windows backend did not publish valid 64-channel status."
+        throw "Windows backend did not publish valid stereo planet status."
     }
     if (!$backend.WaitForExit(8000)) {
         throw "Windows backend did not stop after its configured duration."

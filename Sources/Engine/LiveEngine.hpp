@@ -26,6 +26,8 @@ struct LiveEngineConfig final {
     std::uint16_t txPort{5004};
     std::uint8_t rxPayloadType{kPayloadType};
     std::uint8_t txPayloadType{kPayloadType};
+    std::size_t channelsPerStream{kAES67ChannelsPerStream};
+    std::size_t coreAudioStartChannel{1};
     std::size_t streamCount{1};
     std::uint16_t portStride{0};
     std::size_t jitterPackets{kDefaultJitterPackets};
