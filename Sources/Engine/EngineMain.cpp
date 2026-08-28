@@ -18,7 +18,13 @@
 #include <thread>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
+#ifdef interface
+#undef interface
+#endif
 #else
 #include <cerrno>
 #include <unistd.h>
