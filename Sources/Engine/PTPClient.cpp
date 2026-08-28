@@ -112,7 +112,7 @@ void PTPClient::loop() {
 #if defined(_WIN32)
     // The hardware trace is a macOS development aid. Avoid MSVC's deprecated
     // getenv API in the portable backend, which is built with warnings fatal.
-    constexpr bool traceMeasurements = false;
+    bool traceMeasurements = false;
 #else
     const bool traceMeasurements = std::getenv("AES_BRIDGE_PTP_TRACE") != nullptr;
 #endif
