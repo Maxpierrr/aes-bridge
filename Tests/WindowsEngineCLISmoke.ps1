@@ -51,7 +51,7 @@ try {
     for ($attempt = 0; $attempt -lt 30 -and $null -eq $status; $attempt++) {
         Start-Sleep -Milliseconds 100
         $candidate = Get-EngineStatus
-        if ($null -ne $candidate -and $candidate.engineRunning -and $candidate.virtualChannels -eq 64 -and $candidate.channelsPerStream -eq 2) {
+        if ($null -ne $candidate -and $candidate.engineRunning -and $candidate.virtualChannels -eq 64 -and $candidate.activeStreamCount -eq 1) {
             $status = $candidate
         }
     }

@@ -108,7 +108,6 @@ void printStatus(const lxtool::aes67::SharedAudioBlock& block) {
 void printStatusJson(const lxtool::aes67::SharedAudioBlock& block) {
     std::cout << "{\"engineRunning\":" << (block.engineRunning.load(std::memory_order_relaxed) ? "true" : "false")
               << ",\"virtualChannels\":" << block.channels
-              << ",\"channelsPerStream\":" << block.channelsPerStream
               << ",\"activeStreamCount\":" << block.activeStreamCount.load(std::memory_order_relaxed)
               << ",\"rxPackets\":" << block.statistics.rxPackets.load(std::memory_order_relaxed)
               << ",\"txPackets\":" << block.statistics.txPackets.load(std::memory_order_relaxed)

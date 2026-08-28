@@ -101,7 +101,6 @@ bool LiveEngine::start() {
         || !sharedMemory_.open(true)) { running_.store(false); return false; }
     auto* block = sharedMemory_.get();
     resetRuntimeState(*block);
-    block->channelsPerStream = static_cast<std::uint32_t>(config_.channelsPerStream);
     block->engineRunning.store(true, std::memory_order_release);
     block->ptpLocked.store(false, std::memory_order_release);
     block->activeStreamCount.store(static_cast<std::uint32_t>(config_.streamCount), std::memory_order_release);

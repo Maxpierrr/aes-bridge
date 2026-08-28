@@ -32,7 +32,7 @@ attempt=0
 while [ "${attempt}" -lt 40 ]; do
     if candidate="$("${engine}" --status 2>/dev/null)"; then
         case "${candidate}" in
-            *'"engineRunning":true'*'"channelsPerStream":2'*'"activeStreamCount":1'*)
+            *'"engineRunning":true'*'"activeStreamCount":1'*)
                 planet_status="${candidate}"
                 break
                 ;;
