@@ -5,7 +5,22 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$PSNativeCommandUseErrorActionPreference = $false
+
+function Get-EngineStatus {
+    $statusInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $statusInfo.FileName = $Engine
+    $statusInfo.Arguments = "--status"
+    $statusInfo.UseShellExecute = $false
+    $statusInfo.RedirectStandardOutput = $true
+    $statusInfo.RedirectStandardError = $true
+    $statusProcess = New-Object System.Diagnostics.Process
+    $statusProcess.StartInfo = $statusInfo
+    if (!$statusProcess.Start()) { return $null }
+    $json = $statusProcess.StandardOutput.ReadToEnd()
+    $statusProcess.WaitForExit()
+    if ($statusProcess.ExitCode -ne 0) { return $null }
+    try { return $json | ConvertFrom-Json } catch { return $null }
+}
 $arguments = @(
     "--run",
     "--interface-address", "127.0.0.1",
@@ -15,7 +30,7 @@ $arguments = @(
     "--tx-port", "54901",
     "--channels-per-stream", "2",
     "--core-audio-start-channel", "1",
-    "--duration", "3",
+    "--duration", "10",
     "--no-sap",
     "--no-ptp"
 )
@@ -24,6 +39,8 @@ $startInfo = New-Object System.Diagnostics.ProcessStartInfo
 $startInfo.FileName = $Engine
 $startInfo.Arguments = $arguments -join " "
 $startInfo.UseShellExecute = $false
+$startInfo.RedirectStandardOutput = $true
+$startInfo.RedirectStandardError = $true
 $backend = New-Object System.Diagnostics.Process
 $backend.StartInfo = $startInfo
 if (!$backend.Start()) {
@@ -33,18 +50,18 @@ try {
     $status = $null
     for ($attempt = 0; $attempt -lt 30 -and $null -eq $status; $attempt++) {
         Start-Sleep -Milliseconds 100
-        $json = & $Engine --status 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $candidate = $json | ConvertFrom-Json
-            if ($candidate.engineRunning -and $candidate.virtualChannels -eq 64 -and $candidate.channelsPerStream -eq 2) {
-                $status = $candidate
-            }
+        $candidate = Get-EngineStatus
+        if ($null -ne $candidate -and $candidate.engineRunning -and $candidate.virtualChannels -eq 64 -and $candidate.channelsPerStream -eq 2) {
+            $status = $candidate
         }
     }
     if ($null -eq $status) {
-        throw "Windows backend did not publish valid stereo planet status."
+        $details = if ($backend.HasExited) {
+            " Exit=$($backend.ExitCode); stdout=$($backend.StandardOutput.ReadToEnd()); stderr=$($backend.StandardError.ReadToEnd())"
+        } else { " Process still running." }
+        throw "Windows backend did not publish valid stereo planet status.$details"
     }
-    if (!$backend.WaitForExit(8000)) {
+    if (!$backend.WaitForExit(15000)) {
         throw "Windows backend did not stop after its configured duration."
     }
     if ($backend.ExitCode -ne 0) {
