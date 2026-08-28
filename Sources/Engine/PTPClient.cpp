@@ -109,7 +109,13 @@ void PTPClient::loop() {
     std::optional<std::int64_t> filteredOffset;
     unsigned stableMeasurements = 0;
     SteadyClock::time_point lastValidMeasurement{};
+#if defined(_WIN32)
+    // The hardware trace is a macOS development aid. Avoid MSVC's deprecated
+    // getenv API in the portable backend, which is built with warnings fatal.
+    constexpr bool traceMeasurements = false;
+#else
     const bool traceMeasurements = std::getenv("AES_BRIDGE_PTP_TRACE") != nullptr;
+#endif
 
     auto process = [&](std::span<const std::uint8_t> bytes, std::int64_t ingressNanoseconds) {
         // Dante can emit PTPv1 and PTPv2 concurrently on these ports. Traffic
